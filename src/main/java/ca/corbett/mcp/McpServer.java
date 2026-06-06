@@ -13,9 +13,12 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 /**
  * An extremely lightweight MCP server implementation for simple tool calling.
@@ -39,6 +42,13 @@ public class McpServer {
      */
     private static final String MCP_VERSION = "2024-10-07";
 
+    /**
+     * We insist that tool names be alphanumeric with no spaces.
+     * As far as I know, the protocol only insists that the first character should be a letter,
+     * but we'll go a bit further and only allow letters, numbers, underscores, and hyphens.
+     */
+    private static final Pattern ALPHA_NUMERIC_PATTERN = Pattern.compile("^[a-zA-Z][a-zA-Z0-9_-]*$");
+
     private static final Logger log = Logger.getLogger(McpServer.class.getName());
 
     // Configure Jackson for lenient field matching (common in MCP clients)
@@ -50,7 +60,7 @@ public class McpServer {
     private final int threads;
     private final String path;
     private HttpServer server;
-    private final List<McpTool> tools = new ArrayList<>();
+    private final List<McpTool> tools = new CopyOnWriteArrayList<>();
 
     public McpServer() {
         this(DEFAULT_PORT, DEFAULT_PATH, DEFAULT_THREADS);
@@ -84,6 +94,23 @@ public class McpServer {
         if (tool == null) {
             throw new IllegalArgumentException("Tool cannot be null");
         }
+        String toolName = tool.getName();
+        if (toolName == null) {
+            throw new IllegalArgumentException("Tool name cannot be null");
+        }
+
+        // Check it against our pattern (this also ensures it's at least 1 character long):
+        if (!ALPHA_NUMERIC_PATTERN.matcher(toolName).matches()) {
+            throw new IllegalArgumentException("Tool name must start with a letter and then only contain letters, " +
+                                                       "numbers, hyphens, or underscores. Invalid name: \"" + toolName + "\"");
+        }
+
+        // We won't insist on a description, but we'll nag the caller if it's missing:
+        if (tool.getDescription() == null || tool.getDescription().isBlank()) {
+            log.warning(
+                    "McpServer: tool \"" + toolName + "\" has no description. It's recommended to provide one for better client integration.");
+        }
+
         if (tools.stream().anyMatch(t -> t.getName().equals(tool.getName()))) {
             log.warning("McpServer: tool with name \"" + tool.getName() + "\" is already registered, ignoring.");
             return false;
@@ -238,7 +265,7 @@ public class McpServer {
      * @return 0 if the check passed, or an HTTP 415 error code if the check failed.
      */
     private int checkContentType(String contentType) {
-        if (contentType == null || !contentType.toLowerCase().startsWith("application/json")) {
+        if (contentType == null || !contentType.toLowerCase(Locale.ROOT).startsWith("application/json")) {
             log.warning("McpServer: received POST request with invalid Content-Type: " + contentType);
             return 415; // UNSUPPORTED MEDIA TYPE
         }
@@ -266,15 +293,14 @@ public class McpServer {
                 return;
             }
 
-            // Now parse the body and we're ready:
-            String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-            McpRequest request = MAPPER.readValue(body, McpRequest.class);
-            String method = request.method;
-
             McpResponse response = new McpResponse();
-            response.id = request.id;
-
             try {
+                // Now parse the body and we're ready:
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                McpRequest request = MAPPER.readValue(body, McpRequest.class);
+                response.id = request.id;
+                String method = request.method;
+
                 if ("initialize".equals(method)) {
                     response.result = handleInitialize(request.params);
                 } else if ("initialized".equals(method)) {
@@ -286,7 +312,7 @@ public class McpServer {
                     response.result = handleToolsList();
                 } else if ("tools/call".equals(method)) {
                     Map<String, Object> params = request.params != null ? request.params : Map.of();
-                    String toolName = params.get("name") != null ? (String) params.get("name") : null;
+                    String toolName = params.get("name") instanceof String ? (String)params.get("name") : null;
                     Object arguments = params.get("arguments");
                     Map<String, Object> toolArgs = Map.of();
                     if (arguments instanceof Map<?,?> args) {
@@ -298,15 +324,18 @@ public class McpServer {
                     }
                     Map<String, Object> toolResult = handleToolCall(toolName, toolArgs);
                     if (toolResult == null) {
-                        response.error = Map.of("code", McpError.INVALID_PARAMS, "message", "No such tool: " + toolName);
-                        return;
+                        response.error = Map.of("code", McpError.INVALID_PARAMS.getCode(),
+                                                "message", "No such tool: " + toolName);
                     }
-                    response.result = toolResult;
+                    else {
+                        response.result = toolResult;
+                    }
                 } else {
-                    response.error = Map.of("code", McpError.METHOD_NOT_FOUND, "message", "Method not found: " + method);
+                    response.error = Map.of("code", McpError.METHOD_NOT_FOUND.getCode(),
+                                            "message", "Method not found: " + method);
                 }
             } catch (Exception e) {
-                response.error = Map.of("code", McpError.INVALID_REQUEST, "message", e.getMessage());
+                response.error = Map.of("code", McpError.INVALID_REQUEST.getCode(), "message", e.getMessage());
             }
 
             byte[] respBytes = MAPPER.writeValueAsBytes(response);
