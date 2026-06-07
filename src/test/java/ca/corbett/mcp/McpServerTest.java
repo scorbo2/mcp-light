@@ -500,6 +500,18 @@ class McpServerTest {
     }
 
     @Test
+    public void handleOptionsRequest_shouldReturn204() throws Exception {
+        int port = server.getPort();
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:" + port + "/mcp"))
+                .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
+                .build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(204, response.statusCode());
+    }
+
+    @Test
     public void handleMissingContentType_shouldReturn415() throws Exception {
         int port = server.getPort();
         String body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}";
