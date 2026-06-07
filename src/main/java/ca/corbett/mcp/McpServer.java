@@ -35,12 +35,12 @@ public class McpServer {
     /**
      * This is OUR version, not the MCP protocol version that we understand.
      */
-    private static final String VERSION = "1.0.0";
+    public static final String VERSION = "1.0.0";
 
     /**
      * This is the version of the MCP protocol that we will report to clients.
      */
-    private static final String MCP_VERSION = "2024-10-07";
+    public static final String MCP_VERSION = "2024-10-07";
 
     /**
      * We insist that tool names be alphanumeric with no spaces.
@@ -66,6 +66,10 @@ public class McpServer {
         this(DEFAULT_PORT, DEFAULT_PATH, DEFAULT_THREADS);
     }
 
+    /**
+     * You can override the default port with this constructor.
+     * A port of 0 means that a random available port will be selected (good for testing).
+     */
     public McpServer(int port) {
         this(port, DEFAULT_PATH, DEFAULT_THREADS);
     }
@@ -75,8 +79,8 @@ public class McpServer {
     }
 
     public McpServer(int port, String path, int threads) {
-        if (port < 1 || port > 65535) {
-            throw new IllegalArgumentException("Port must be between 1 and 65535");
+        if (port < 0 || port > 65535) {
+            throw new IllegalArgumentException("Port must be between 0 and 65535");
         }
         if (threads < 1) {
             throw new IllegalArgumentException("Threads must be at least 1");
@@ -88,6 +92,27 @@ public class McpServer {
         this.port = port;
         this.threads = threads;
         this.path = path.startsWith("/") ? path : "/" + path;
+    }
+
+    /**
+     * Returns the port we're currently listening on, or the configured port if we're not currently running.
+     * If you constructed this instance with a port of 0 (random), this method will return the port
+     * that actually got assigned. Otherwise, you should always get back the port that you configured.
+     * (Or the default port if you didn't specify one at all).
+     */
+    public synchronized int getPort() {
+        if (server != null && server.getAddress() != null) {
+            return server.getAddress().getPort();
+        }
+        return port;
+    }
+
+    /**
+     * Returns the base path we're listening on. This is always the configured path,
+     * regardless of whether we're currently running or not.
+     */
+    public String getBasePath() {
+        return path;
     }
 
     public boolean registerTool(McpTool tool) {
@@ -147,7 +172,7 @@ public class McpServer {
         server.setExecutor(Executors.newFixedThreadPool(threads));
         server.createContext(path, new McpHandler());
         server.start();
-        log.info("McpServer: running on http://localhost:"+port+path);
+        log.info("McpServer: running on http://localhost:" + server.getAddress().getPort() + path);
     }
 
     public synchronized void stop() {
@@ -293,14 +318,28 @@ public class McpServer {
                 return;
             }
 
+            // Now parse the body and we're ready:
             McpResponse response = new McpResponse();
+            McpRequest request;
+            String method;
             try {
-                // Now parse the body and we're ready:
                 String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-                McpRequest request = MAPPER.readValue(body, McpRequest.class);
+                request = MAPPER.readValue(body, McpRequest.class);
                 response.id = request.id;
-                String method = request.method;
+                method = request.method;
+            }
+            catch (IOException e) {
+                log.warning("McpServer: failed to parse request body: " + e.getMessage());
+                byte[] respBytes = ("Failed to parse request body: " + e.getMessage()).getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "text/plain");
+                exchange.sendResponseHeaders(400, respBytes.length); // BAD REQUEST
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(respBytes);
+                }
+                return;
+            }
 
+            try {
                 if ("initialize".equals(method)) {
                     response.result = handleInitialize(request.params);
                 } else if ("initialized".equals(method)) {
