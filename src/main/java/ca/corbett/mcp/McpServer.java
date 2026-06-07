@@ -550,6 +550,10 @@ public class McpServer {
                         // but we really don't care:
                         response.result = Map.of();
                     }
+                    else if ("ping".equals(method)) {
+                        // The protocol requires us to send an empty response if we receive a ping:
+                        response.result = Map.of();
+                    }
                     else if ("tools/list".equals(method)) {
                         response.result = handleToolsList();
                     }
