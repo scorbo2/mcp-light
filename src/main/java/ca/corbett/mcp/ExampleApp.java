@@ -12,11 +12,27 @@ import java.util.Map;
 public class ExampleApp {
 
     public static void main(String[] args) {
-        McpServer server = new McpServer(8080);
-        server.registerTool(new ExampleTool());
-        server.registerResource(new ExampleResource());
-        server.registerResource(new ExampleTemplateResource());
+        if (args.length > 1) {
+            System.err.println("USAGE: java -jar mcp-light.jar [port]");
+            return;
+        }
+        int port = McpServer.DEFAULT_PORT;
+        if (args.length == 1) {
+            try {
+                port = Integer.parseInt(args[0]);
+            }
+            catch (NumberFormatException e) {
+                System.err.println("Invalid port number: " + args[0]);
+                return;
+            }
+        }
+        System.out.println("mcp-light example application starting on port " + port + "...");
+        McpServer server;
         try {
+            server = new McpServer(port);
+            server.registerTool(new ExampleTool());
+            server.registerResource(new ExampleResource());
+            server.registerResource(new ExampleTemplateResource());
             server.start();
         }
         catch (Exception e) {
@@ -28,7 +44,7 @@ public class ExampleApp {
         // Register a shutdown hook to gracefully stop the server when the application is terminated
         Runtime.getRuntime().addShutdownHook(new Thread(server::stop));
 
-        System.out.println("Server started on port 8080. Press Ctrl+C to stop.");
+        System.out.println("Server started. Press Ctrl+C to stop.");
     }
 
     /**

@@ -35,7 +35,7 @@ public class McpServer {
     /**
      * This is OUR version, not the MCP protocol version that we understand.
      */
-    public static final String VERSION = "1.0.0";
+    public static final String VERSION = "1.0";
 
     /**
      * This is the version of the MCP protocol that we will report to clients.
