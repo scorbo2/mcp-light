@@ -195,6 +195,149 @@ class McpServerTest {
         assertThrows(IllegalArgumentException.class, () -> server.unregisterTool(""));
     }
 
+    // ==================== Resource Registration ====================
+
+    @Test
+    public void registerResource_withNull_shouldThrow() {
+        assertThrows(IllegalArgumentException.class, () -> server.registerResource(null));
+    }
+
+    @Test
+    public void registerResource_withNullName_shouldThrow() {
+        McpResource resource = new McpResource() {
+            public String getName() {
+                return null;
+            }
+
+            public String getDescription() {
+                return "A resource";
+            }
+
+            public String getUri() {
+                return "myapp://resource";
+            }
+
+            public boolean matchesUri(String uri) {
+                return true;
+            }
+
+            public String getMimeType() {
+                return "text/plain";
+            }
+
+            public String getContent(String requestedUri) {
+                return "content";
+            }
+        };
+        assertThrows(IllegalArgumentException.class, () -> server.registerResource(resource));
+    }
+
+    @Test
+    public void registerResource_withNullUri_shouldThrow() {
+        McpResource resource = new McpResource() {
+            public String getName() {
+                return "myResource";
+            }
+
+            public String getDescription() {
+                return "A resource";
+            }
+
+            public String getUri() {
+                return null;
+            }
+
+            public boolean matchesUri(String uri) {
+                return true;
+            }
+
+            public String getMimeType() {
+                return "text/plain";
+            }
+
+            public String getContent(String requestedUri) {
+                return "content";
+            }
+        };
+        assertThrows(IllegalArgumentException.class, () -> server.registerResource(resource));
+    }
+
+    @Test
+    public void registerResource_withInvalidName_shouldThrow() {
+        McpResource resource = new McpResource() {
+            public String getName() {
+                return "123bad";
+            }
+
+            public String getDescription() {
+                return "A resource";
+            }
+
+            public String getUri() {
+                return "myapp://resource";
+            }
+
+            public boolean matchesUri(String uri) {
+                return true;
+            }
+
+            public String getMimeType() {
+                return "text/plain";
+            }
+
+            public String getContent(String requestedUri) {
+                return "content";
+            }
+        };
+        assertThrows(IllegalArgumentException.class, () -> server.registerResource(resource));
+    }
+
+    @Test
+    public void registerResource_withValidResource_shouldReturnTrue() {
+        McpResource resource = createResource("myResource", "A resource", "myapp://resource", "content");
+        assertTrue(server.registerResource(resource));
+    }
+
+    @Test
+    public void registerResource_withDuplicateName_shouldReturnFalse() {
+        McpResource resource1 = createResource("myResource", "A resource", "myapp://resource1", "content1");
+        McpResource resource2 = createResource("myResource", "Another resource", "myapp://resource2", "content2");
+        assertTrue(server.registerResource(resource1));
+        assertFalse(server.registerResource(resource2));
+    }
+
+    @Test
+    public void registerResource_withDuplicateUri_shouldReturnFalse() {
+        McpResource resource1 = createResource("resource1", "A resource", "myapp://resource", "content1");
+        McpResource resource2 = createResource("resource2", "Another resource", "myapp://resource", "content2");
+        assertTrue(server.registerResource(resource1));
+        assertFalse(server.registerResource(resource2));
+    }
+
+    // ==================== Resource Unregistration ====================
+
+    @Test
+    public void unregisterResource_withNonExistent_shouldReturnFalse() {
+        assertFalse(server.unregisterResource("nonexistent"));
+    }
+
+    @Test
+    public void unregisterResource_withExisting_shouldReturnTrue() {
+        McpResource resource = createResource("myResource", "A resource", "myapp://resource", "content");
+        server.registerResource(resource);
+        assertTrue(server.unregisterResource("myResource"));
+    }
+
+    @Test
+    public void unregisterResource_withNullName_shouldThrow() {
+        assertThrows(IllegalArgumentException.class, () -> server.unregisterResource(null));
+    }
+
+    @Test
+    public void unregisterResource_withBlankName_shouldThrow() {
+        assertThrows(IllegalArgumentException.class, () -> server.unregisterResource(""));
+    }
+
     // ==================== HTTP Endpoint Tests ====================
 
     @Test
@@ -548,6 +691,303 @@ class McpServerTest {
         assertTrue(response.contains("content"));
     }
 
+    // ==================== Resource HTTP Endpoint Tests ====================
+
+    @Test
+    public void handleResourcesList_withNoResources_shouldReturnEmptyList() throws Exception {
+        int port = server.getPort();
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 14,
+                    "method": "resources/list"
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("\"resources\":[]"));
+    }
+
+    @Test
+    public void handleResourcesList_withResources_shouldReturnRegisteredResources() throws Exception {
+        int port = server.getPort();
+        server.registerResource(createResource("config", "Config file", "myapp://config", "key=value"));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 15,
+                    "method": "resources/list"
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("config"));
+        assertTrue(response.contains("Config file"));
+        assertTrue(response.contains("myapp://config"));
+    }
+
+    @Test
+    public void handleResourceTemplatesList_withNoTemplates_shouldReturnEmptyList() throws Exception {
+        int port = server.getPort();
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 16,
+                    "method": "resources/templates/list"
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("\"resourceTemplates\":[]"));
+    }
+
+    @Test
+    public void handleResourceTemplatesList_withTemplates_shouldReturnResourceTemplates() throws Exception {
+        int port = server.getPort();
+        server.registerResource(
+                createResource("userProfile", "User profile", "myapp://users/{userId}", "user content"));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 17,
+                    "method": "resources/templates/list"
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("userProfile"));
+        assertTrue(response.contains("User profile"));
+        assertTrue(response.contains("myapp://users/{userId}"));
+    }
+
+    @Test
+    public void handleResourceTemplatesList_withFixedUriResources_shouldNotReturnInTemplates() throws Exception {
+        int port = server.getPort();
+        server.registerResource(createResource("config", "Config file", "myapp://config", "key=value"));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 18,
+                    "method": "resources/templates/list"
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("\"resourceTemplates\":[]"));
+        assertFalse(response.contains("config"));
+    }
+
+    @Test
+    public void handleResourceFetch_withValidResource_shouldReturnContent() throws Exception {
+        int port = server.getPort();
+        server.registerResource(createResource("config", "Config file", "myapp://config", "key=value"));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 19,
+                    "method": "resources/read",
+                    "params": {
+                        "uri": "myapp://config"
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("key=value"));
+        assertTrue(response.contains("\"mimeType\":\"text/plain\""));
+    }
+
+    @Test
+    public void handleResourceFetch_withTemplateResource_shouldMatchAndReturnContent() throws Exception {
+        int port = server.getPort();
+        server.registerResource(
+                createResource("userProfile", "User profile", "myapp://users/{userId}", "user content"));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 20,
+                    "method": "resources/read",
+                    "params": {
+                        "uri": "myapp://users/123"
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("user content"));
+        assertTrue(response.contains("myapp://users/123"));
+    }
+
+    @Test
+    public void handleResourceFetch_withUnknownResource_shouldReturnNotFound() throws Exception {
+        int port = server.getPort();
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 21,
+                    "method": "resources/read",
+                    "params": {
+                        "uri": "myapp://unknown"
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("error"));
+        assertTrue(response.contains("No such resource: myapp://unknown"));
+    }
+
+    @Test
+    public void handleResourceFetch_withBlankUri_shouldReturnError() throws Exception {
+        int port = server.getPort();
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 22,
+                    "method": "resources/read",
+                    "params": {
+                        "uri": ""
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("error"));
+        assertTrue(response.contains("Missing or blank"));
+    }
+
+    @Test
+    public void handleResourceFetch_withMissingUri_shouldReturnError() throws Exception {
+        int port = server.getPort();
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 23,
+                    "method": "resources/read",
+                    "params": {}
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("error"));
+        assertTrue(response.contains("Missing or blank"));
+    }
+
+    @Test
+    public void handleResourceFetch_withResourceThatThrows_shouldReturnErrorContent() throws Exception {
+        int port = server.getPort();
+        McpResource resource = new McpResource() {
+            public String getName() {
+                return "boomResource";
+            }
+
+            public String getDescription() {
+                return "Always fails";
+            }
+
+            public String getUri() {
+                return "myapp://boom";
+            }
+
+            public boolean matchesUri(String uri) {
+                return true;
+            }
+
+            public String getMimeType() {
+                return "text/plain";
+            }
+
+            public String getContent(String requestedUri) {
+                throw new RuntimeException("resource boom!");
+            }
+        };
+        server.registerResource(resource);
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 24,
+                    "method": "resources/read",
+                    "params": {
+                        "uri": "myapp://boom"
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("error"));
+        assertTrue(response.contains("Failed to fetch resource content"));
+        assertTrue(response.contains("resource boom!"));
+    }
+
+    @Test
+    public void handleResourceFetch_withBinaryResource_shouldReturnBlob() throws Exception {
+        int port = server.getPort();
+        McpResource resource = new McpResource() {
+            public String getName() {
+                return "binaryData";
+            }
+
+            public String getDescription() {
+                return "Binary resource";
+            }
+
+            public String getUri() {
+                return "myapp://binary";
+            }
+
+            public boolean matchesUri(String uri) {
+                return true;
+            }
+
+            public String getMimeType() {
+                return "image/png";
+            }
+
+            public String getContent(String requestedUri) {
+                return "c29tZSBiaW5hcnkgZGF0YQ==";
+            }
+
+            public boolean isBinary() {
+                return true;
+            }
+        };
+        server.registerResource(resource);
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 25,
+                    "method": "resources/read",
+                    "params": {
+                        "uri": "myapp://binary"
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("\"blob\":\"c29tZSBiaW5hcnkgZGF0YQ==\""));
+        assertFalse(response.contains("\"text\""));
+    }
+
+    @Test
+    public void handleResourceFetch_withException_shouldReturnError() throws Exception {
+        int port = server.getPort();
+        server.registerResource(createResourceWithThrow("errorResource", "Resource that throws",
+                                                        "myapp://error", "fetch error!"));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 26,
+                    "method": "resources/read",
+                    "params": {
+                        "uri": "myapp://error"
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("error"));
+        assertTrue(response.contains("Failed to fetch resource content"));
+        assertTrue(response.contains("fetch error!"));
+    }
+
     // ==================== Helper Methods ====================
 
     private McpTool createTool(String name, String description, String result) {
@@ -565,6 +1005,69 @@ class McpServerTest {
             public String getDescription() { return description; }
             public Map<String, Object> getInputSchema() { return Map.of(); }
             public String execute(Map<String, Object> input) throws Exception {
+                throw new Exception(exceptionMessage);
+            }
+        };
+    }
+
+    private McpResource createResource(String name, String description, String uri, String content) {
+        return new McpResource() {
+            public String getName() {
+                return name;
+            }
+
+            public String getDescription() {
+                return description;
+            }
+
+            public String getUri() {
+                return uri;
+            }
+
+            public boolean matchesUri(String checkUri) {
+                if (uri.equals(checkUri)) { return true; }
+                // Handle URI templates: if URI contains "{", check prefix before the first "{"
+                int templateStart = uri.indexOf('{');
+                if (templateStart >= 0) {
+                    String prefix = uri.substring(0, templateStart);
+                    return checkUri.startsWith(prefix);
+                }
+                return false;
+            }
+
+            public String getMimeType() {
+                return "text/plain";
+            }
+
+            public String getContent(String requestedUri) {
+                return content;
+            }
+        };
+    }
+
+    private McpResource createResourceWithThrow(String name, String description, String uri, String exceptionMessage) {
+        return new McpResource() {
+            public String getName() {
+                return name;
+            }
+
+            public String getDescription() {
+                return description;
+            }
+
+            public String getUri() {
+                return uri;
+            }
+
+            public boolean matchesUri(String checkUri) {
+                return uri.equals(checkUri);
+            }
+
+            public String getMimeType() {
+                return "text/plain";
+            }
+
+            public String getContent(String requestedUri) throws Exception {
                 throw new Exception(exceptionMessage);
             }
         };

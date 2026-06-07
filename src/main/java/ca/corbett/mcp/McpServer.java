@@ -61,6 +61,7 @@ public class McpServer {
     private final String path;
     private HttpServer server;
     private final List<McpTool> tools = new CopyOnWriteArrayList<>();
+    private final List<McpResource> resources = new CopyOnWriteArrayList<>();
 
     public McpServer() {
         this(DEFAULT_PORT, DEFAULT_PATH, DEFAULT_THREADS);
@@ -115,6 +116,15 @@ public class McpServer {
         return path;
     }
 
+    /**
+     * Registers a tool that clients can call via the "tools/call" method.
+     * The tool name must be non-null and unique among registered tools, and must match our ALPHA_NUMERIC_PATTERN.
+     * Tools <i>should</i> have a description, but this is not enforced here.
+     *
+     * @param tool The tool to register. Must not be null, and must have a valid name.
+     * @return true if the tool was successfully registered, or false if a tool with the same name is already registered.
+     * @throws IllegalArgumentException if you provide a null tool or one with an invalid name.
+     */
     public boolean registerTool(McpTool tool) {
         if (tool == null) {
             throw new IllegalArgumentException("Tool cannot be null");
@@ -132,8 +142,8 @@ public class McpServer {
 
         // We won't insist on a description, but we'll nag the caller if it's missing:
         if (tool.getDescription() == null || tool.getDescription().isBlank()) {
-            log.warning(
-                    "McpServer: tool \"" + toolName + "\" has no description. It's recommended to provide one for better client integration.");
+            log.warning("McpServer: tool \"" + toolName
+                                + "\" has no description. It's recommended to provide one for better client integration.");
         }
 
         if (tools.stream().anyMatch(t -> t.getName().equals(tool.getName()))) {
@@ -145,6 +155,14 @@ public class McpServer {
         return true;
     }
 
+    /**
+     * Unregisters a tool by name (case-sensitive).
+     * Returns true if a tool was actually removed, or false if no tool with the given name was found.
+     *
+     * @param toolName The name of the tool to remove. Must not be null or blank.
+     * @return true if a tool was removed, or false if no tool with the given name was found.
+     * @throws IllegalArgumentException if the tool name is null or blank.
+     */
     public boolean unregisterTool(String toolName) {
         if (toolName == null || toolName.isBlank()) {
             throw new IllegalArgumentException("Tool name cannot be null or blank");
@@ -154,6 +172,68 @@ public class McpServer {
             log.info("McpServer: unregistered tool \"" + toolName + "\"");
         } else {
             log.warning("McpServer: no tool with name \"" + toolName + "\" found to unregister.");
+        }
+        return removed;
+    }
+
+    /**
+     * Registers a resource that clients can access via its URI. The resource can be anything,
+     * but it must be represented in string format (binary data being base64-encoded) and have
+     * an appropriate MIME type.
+     *
+     * @param resource The resource to register. Must not be null, and must have a valid name and URI.
+     * @return true upon successful registration; false if a resource with the same name or URI is already registered.
+     * @throws IllegalArgumentException if you provide a null resource or one with an invalid name, uri, or MIME type.
+     */
+    public boolean registerResource(McpResource resource) {
+        if (resource == null) {
+            throw new IllegalArgumentException("Resource cannot be null");
+        }
+        String resourceName = resource.getName();
+        if (resourceName == null || resource.getUri() == null) {
+            throw new IllegalArgumentException("Resource name and URI cannot be null");
+        }
+        // Check it against our pattern (this also ensures it's at least 1 character long):
+        if (!ALPHA_NUMERIC_PATTERN.matcher(resourceName).matches()) {
+            throw new IllegalArgumentException("Resource name must start with a letter and then only contain letters, "
+                                                       + "numbers, hyphens, or underscores. Invalid name: \""
+                                                       + resourceName + "\"");
+        }
+        if (resource.getMimeType() == null || resource.getMimeType().isBlank()) {
+            throw new IllegalArgumentException("Resource \"" + resourceName + "\" has no MIME type. " +
+                                                       "A valid MIME type is required to register a resource.");
+        }
+        if (resources.stream().anyMatch(r -> r.getName().equals(resource.getName()))) {
+            log.warning(
+                    "McpServer: resource with name \"" + resource.getName() + "\" is already registered, ignoring.");
+            return false;
+        }
+        if (resources.stream().anyMatch(r -> r.getUri().equals(resource.getUri()))) {
+            log.warning("McpServer: resource with URI \"" + resource.getUri() + "\" is already registered, ignoring.");
+            return false;
+        }
+        resources.add(resource);
+        log.info("McpServer: registered resource \"" + resource.getName() + "\"");
+        return true;
+    }
+
+    /**
+     * Unregisters a resource by name (case-sensitive).
+     *
+     * @param resourceName The name of the resource to remove. Must not be null or blank.
+     * @return true if a resource was removed, or false if no resource with the given name was found.
+     * @throws IllegalArgumentException if the resource name is null or blank.
+     */
+    public boolean unregisterResource(String resourceName) {
+        if (resourceName == null || resourceName.isBlank()) {
+            throw new IllegalArgumentException("Resource name cannot be null or blank");
+        }
+        boolean removed = resources.removeIf(r -> r.getName().equals(resourceName));
+        if (removed) {
+            log.info("McpServer: unregistered resource \"" + resourceName + "\"");
+        }
+        else {
+            log.warning("McpServer: no resource with name \"" + resourceName + "\" found to unregister.");
         }
         return removed;
     }
@@ -198,7 +278,10 @@ public class McpServer {
         }
         return Map.of(
                 "protocolVersion", MCP_VERSION,
-                "capabilities", Map.of("tools", Map.of("listChanged", false)),
+                "capabilities", Map.of(
+                        "tools", Map.of("listChanged", false),
+                        "resources", Map.of("listChanged", false, "subscribe", false)
+                ),
                 "serverInfo", Map.of("name", "mcp-light", "version", VERSION)
         );
     }
@@ -249,6 +332,64 @@ public class McpServer {
         return Map.of("content", List.of(
                 new McpToolContent("text", result, isError)
         ));
+    }
+
+    /**
+     * Generates a list of our registered resources in the format expected by clients.
+     *
+     * @param templates whether to look for URI templates or fixed URIs.
+     */
+    private Map<String, Object> handleResourceList(boolean templates) {
+        List<Map<String, Object>> resourceDefs = new ArrayList<>();
+        for (McpResource resource : resources) {
+            if (templates && !resource.getUri().contains("{")) {
+                continue;
+            }
+            if (!templates && resource.getUri().contains("{")) {
+                continue;
+            }
+            String description = resource.getDescription() == null ? "" : resource.getDescription();
+            resourceDefs.add(Map.of(
+                    "name", resource.getName(),
+                    "description", description,
+                    "uri", resource.getUri(),
+                    "mimeType", resource.getMimeType()
+            ));
+        }
+        String keyName = templates ? "resourceTemplates" : "resources";
+        return Map.of(keyName, resourceDefs);
+    }
+
+    /**
+     * Returns a resource response (or error response if the fetch failed) for the resource at the given URI.
+     * If the return is null, no registered resource matched the given URI.
+     *
+     * @param uri The URI of the resource to fetch.
+     * @return The resource response (or error response), or null if no such resource was found.
+     */
+    private Map<String, Object> handleResourceFetch(String uri) {
+        if (uri == null || uri.isBlank()) {
+            log.warning("McpServer: received resource fetch with blank URI.");
+            return Map.of("error", "URI cannot be blank");
+        }
+        McpResource resource = resources.stream()
+                                        .filter(r -> r.matchesUri(uri))
+                                        .findFirst()
+                                        .orElse(null);
+        if (resource == null) {
+            return null;
+        }
+        try {
+            String content = resource.getContent(uri);
+            McpResourceContent resourceContent = new McpResourceContent(uri,
+                                                                        resource.getMimeType(),
+                                                                        resource.isBinary() ? null : content,
+                                                                        resource.isBinary() ? content : null);
+            return Map.of("contents", List.of(resourceContent));
+        }
+        catch (Exception e) {
+            return Map.of("error", "Failed to fetch resource content: " + e.getMessage());
+        }
     }
 
     /**
@@ -342,14 +483,44 @@ public class McpServer {
             try {
                 if ("initialize".equals(method)) {
                     response.result = handleInitialize(request.params);
-                } else if ("initialized".equals(method)) {
+                }
+                else if ("initialized".equals(method)) {
                     // The protocol requires clients to send this after initialization,
                     // but we really don't care:
                     response.result = Map.of();
                 }
                 else if ("tools/list".equals(method)) {
                     response.result = handleToolsList();
-                } else if ("tools/call".equals(method)) {
+                }
+                else if ("resources/list".equals(method)) {
+                    response.result = handleResourceList(false);
+                }
+                else if ("resources/templates/list".equals(method)) {
+                    response.result = handleResourceList(true);
+                }
+                else if ("resources/read".equals(method)) {
+                    Map<String, Object> params = request.params != null ? request.params : Map.of();
+                    String uri = params.get("uri") instanceof String ? (String)params.get("uri") : null;
+                    if (uri == null || uri.isBlank()) {
+                        response.error = Map.of("code", McpError.INVALID_PARAMS.getCode(),
+                                                "message", "Missing or blank 'uri' parameter");
+                    }
+                    else {
+                        Map<String, Object> result = handleResourceFetch(uri);
+                        if (result == null) {
+                            response.error = Map.of("code", McpError.RESOURCE_NOT_FOUND.getCode(),
+                                                    "message", "No such resource: " + uri);
+                        }
+                        else if (result.get("error") != null) {
+                            response.error = Map.of("code", McpError.INTERNAL_ERROR.getCode(),
+                                                    "message", result.get("error"));
+                        }
+                        else {
+                            response.result = result;
+                        }
+                    }
+                }
+                else if ("tools/call".equals(method)) {
                     Map<String, Object> params = request.params != null ? request.params : Map.of();
                     String toolName = params.get("name") instanceof String ? (String)params.get("name") : null;
                     Object arguments = params.get("arguments");

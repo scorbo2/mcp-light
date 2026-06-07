@@ -1,6 +1,6 @@
 package ca.corbett.mcp;
 
-public class McpToolContent {
+class McpToolContent {
     public String type;
     public String text;
     public boolean isError;
