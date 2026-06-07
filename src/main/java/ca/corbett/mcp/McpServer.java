@@ -323,6 +323,7 @@ public class McpServer {
         String result;
         boolean isError = false;
         try {
+            log.info("McpServer: executing tool \"" + toolName + "\"");
             result = tool.execute(args != null ? args : Map.of());
         }
         catch (Exception e) {
@@ -380,6 +381,7 @@ public class McpServer {
             return null;
         }
         try {
+            log.info("McpServer: fetching resource at URI: " + uri);
             String content = resource.getContent(uri);
             McpResourceContent resourceContent = new McpResourceContent(uri,
                                                                         resource.getMimeType(),
@@ -438,23 +440,52 @@ public class McpServer {
         return 0; // OK
     }
 
+    /**
+     * It turns out browsers will start with a pre-flight OPTIONS check before sending a POST request,
+     * and if we don't handle it, it's treated as a hard error on the client side. Something to do with CORS, I dunno.
+     * So, if we get an OPTIONS request, just send a 204 NO CONTENT and add a few magical headers to it.
+     */
+    private void handleOptions(HttpExchange exchange) {
+        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "POST, OPTIONS");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "*");
+        exchange.getResponseHeaders().set("Access-Control-Max-Age", "86400");
+        exchange.getResponseHeaders().set("Content-Type", "text/plain");
+        try {
+            exchange.sendResponseHeaders(204, -1); // NO CONTENT
+        }
+        catch (IOException e) {
+            log.warning("McpServer: failed to send response to OPTIONS request: " + e.getMessage());
+        }
+    }
+
     class McpHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            // We only support POST:
-            if (!"POST".equals(exchange.getRequestMethod())) {
+            // We only support POST and OPTIONS:
+            if (!"POST".equals(exchange.getRequestMethod())
+                    && !"OPTIONS".equals(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(405, -1); // METHOD NOT ALLOWED
+                return;
+            }
+
+            // If it's an OPTIONS request, we handle it and return early:
+            if ("OPTIONS".equals(exchange.getRequestMethod())) {
+                log.info("McpServer: received OPTIONS request, sending CORS headers.");
+                handleOptions(exchange);
                 return;
             }
 
             // Do some basic sanity checks on the request before we proceed:
             int errorCode = checkContentType(exchange.getRequestHeaders().getFirst("Content-Type"));
             if (errorCode != 0) {
+                log.severe("McpServer: received POST request with invalid Content-Type header.");
                 exchange.sendResponseHeaders(errorCode, -1);
                 return;
             }
             errorCode = checkRequestLength(exchange.getRequestHeaders().getFirst("Content-Length"));
             if (errorCode != 0) {
+                log.severe("McpServer: received POST request with invalid Content-Length header.");
                 exchange.sendResponseHeaders(errorCode, -1);
                 return;
             }
@@ -468,6 +499,26 @@ public class McpServer {
                 request = MAPPER.readValue(body, McpRequest.class);
                 response.id = request.id;
                 method = request.method;
+
+                // If method is null, we might be looking at a llama-ui request, which has a different structure.
+                if (method == null) {
+                    log.warning(
+                            "McpServer: received request with no method field, trying to parse as McpRequest2 (llama-ui format).");
+                    McpRequest2 request2 = MAPPER.readValue(body, McpRequest2.class);
+                    response.id = request2.request.url; // llama-ui doesn't have a formal "id", but the URL is okay.
+                    method = request2.request.method;
+                    request = new McpRequest();
+                    request.method = request2.request.jsonRpcMethods.get(0);
+                    method = request.method; // just to be sure we're consistent
+                    request.params = request2.request.body != null && "application/json".equals(
+                            request2.request.headers.contentType)
+                            ? MAPPER.convertValue(request2.request.body, Map.class)
+                            : Map.of();
+                    log.info("McpServer: parsed request as McpRequest2 with method \"" + method + "\"");
+                }
+                else {
+                    log.info("McpServer: received request for method \"" + method + "\"");
+                }
             }
             catch (IOException e) {
                 log.warning("McpServer: failed to parse request body: " + e.getMessage());
@@ -484,7 +535,7 @@ public class McpServer {
                 if ("initialize".equals(method)) {
                     response.result = handleInitialize(request.params);
                 }
-                else if ("initialized".equals(method)) {
+                else if ("initialized".equals(method) || "notifications/initialized".equals(method)) {
                     // The protocol requires clients to send this after initialization,
                     // but we really don't care:
                     response.result = Map.of();
@@ -502,12 +553,14 @@ public class McpServer {
                     Map<String, Object> params = request.params != null ? request.params : Map.of();
                     String uri = params.get("uri") instanceof String ? (String)params.get("uri") : null;
                     if (uri == null || uri.isBlank()) {
+                        log.severe("McpServer: received resource read request with missing or blank URI.");
                         response.error = Map.of("code", McpError.INVALID_PARAMS.getCode(),
                                                 "message", "Missing or blank 'uri' parameter");
                     }
                     else {
                         Map<String, Object> result = handleResourceFetch(uri);
                         if (result == null) {
+                            log.severe("McpServer: no resource found matching URI: " + uri);
                             response.error = Map.of("code", McpError.RESOURCE_NOT_FOUND.getCode(),
                                                     "message", "No such resource: " + uri);
                         }
@@ -534,6 +587,7 @@ public class McpServer {
                     }
                     Map<String, Object> toolResult = handleToolCall(toolName, toolArgs);
                     if (toolResult == null) {
+                        log.severe("McpServer: no tool found with name: " + toolName);
                         response.error = Map.of("code", McpError.INVALID_PARAMS.getCode(),
                                                 "message", "No such tool: " + toolName);
                     }
@@ -541,15 +595,21 @@ public class McpServer {
                         response.result = toolResult;
                     }
                 } else {
+                    log.severe("McpServer: received request with unknown method: " + method);
                     response.error = Map.of("code", McpError.METHOD_NOT_FOUND.getCode(),
                                             "message", "Method not found: " + method);
                 }
             } catch (Exception e) {
+                log.severe("McpServer: error while handling method \"" + method + "\": " + e.getMessage());
                 response.error = Map.of("code", McpError.INVALID_REQUEST.getCode(), "message", e.getMessage());
             }
 
             byte[] respBytes = MAPPER.writeValueAsBytes(response);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+            exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "POST, OPTIONS");
+            exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "*");
+            exchange.getResponseHeaders().set("Access-Control-Max-Age", "86400");
             exchange.sendResponseHeaders(200, respBytes.length);
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(respBytes);
