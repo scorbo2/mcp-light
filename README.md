@@ -77,7 +77,17 @@ example tool!"
 
 ## Using in code
 
-Import the library into your Java project, and then you can implement the following interfaces as needed:
+The library is available in Maven Central, so you can just add it as a dependency in your project:
+
+```xml
+<dependency>
+    <groupId>ca.corbett</groupId>
+    <artifactId>mcp-light</artifactId>
+    <version>1.0</version>
+</dependency>
+```
+
+Once the library is imported into your Java project, you can implement the following interfaces as needed:
 
 - [McpTool](src/main/java/ca/corbett/mcp/McpTool.java) to define tools that can be called by clients.
 - [McpResource](src/main/java/ca/corbett/mcp/McpResource.java) to expose resources that clients can read.
