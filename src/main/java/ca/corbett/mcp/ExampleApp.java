@@ -95,7 +95,7 @@ public class ExampleApp {
 
         /**
          * Name is mandatory, and must be unique across registered resources.
-         * The result for resource names are the same as for tool names:
+         * The rules for resource names are the same as for tool names:
          * they must begin with a letter and can only contain letters, numbers, hyphens, and underscores.
          */
         @Override
