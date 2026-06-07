@@ -350,10 +350,11 @@ public class McpServer {
                 continue;
             }
             String description = resource.getDescription() == null ? "" : resource.getDescription();
+            String uriKeyName = templates ? "uriTemplate" : "uri";
             resourceDefs.add(Map.of(
                     "name", resource.getName(),
                     "description", description,
-                    "uri", resource.getUri(),
+                    uriKeyName, resource.getUri(),
                     "mimeType", resource.getMimeType()
             ));
         }
