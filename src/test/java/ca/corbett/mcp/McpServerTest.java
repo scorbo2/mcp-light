@@ -378,6 +378,23 @@ class McpServerTest {
     }
 
     @Test
+    public void handlePing_shouldReturnEmptyResult() throws Exception {
+        int port = server.getPort();
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 27,
+                    "method": "ping"
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("result"));
+        assertTrue(response.contains("27")); // should include the same id
+        assertTrue(response.contains("\"result\":{}"));
+        assertFalse(response.contains("error"));
+    }
+
+    @Test
     public void handleToolsList_withNoTools_shouldReturnEmptyList() throws Exception {
         int port = server.getPort();
         String body = """
