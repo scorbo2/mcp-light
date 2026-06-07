@@ -784,7 +784,7 @@ class McpServerTest {
                 {
                     "jsonrpc": "2.0",
                     "id": 19,
-                    "method": "resources/fetch",
+                    "method": "resources/read",
                     "params": {
                         "uri": "myapp://config"
                     }
@@ -805,7 +805,7 @@ class McpServerTest {
                 {
                     "jsonrpc": "2.0",
                     "id": 20,
-                    "method": "resources/fetch",
+                    "method": "resources/read",
                     "params": {
                         "uri": "myapp://users/123"
                     }
@@ -824,7 +824,7 @@ class McpServerTest {
                 {
                     "jsonrpc": "2.0",
                     "id": 21,
-                    "method": "resources/fetch",
+                    "method": "resources/read",
                     "params": {
                         "uri": "myapp://unknown"
                     }
@@ -843,7 +843,7 @@ class McpServerTest {
                 {
                     "jsonrpc": "2.0",
                     "id": 22,
-                    "method": "resources/fetch",
+                    "method": "resources/read",
                     "params": {
                         "uri": ""
                     }
@@ -862,7 +862,7 @@ class McpServerTest {
                 {
                     "jsonrpc": "2.0",
                     "id": 23,
-                    "method": "resources/fetch",
+                    "method": "resources/read",
                     "params": {}
                 }
                 """;
@@ -905,7 +905,7 @@ class McpServerTest {
                 {
                     "jsonrpc": "2.0",
                     "id": 24,
-                    "method": "resources/fetch",
+                    "method": "resources/read",
                     "params": {
                         "uri": "myapp://boom"
                     }
@@ -955,7 +955,7 @@ class McpServerTest {
                 {
                     "jsonrpc": "2.0",
                     "id": 25,
-                    "method": "resources/fetch",
+                    "method": "resources/read",
                     "params": {
                         "uri": "myapp://binary"
                     }
@@ -976,7 +976,7 @@ class McpServerTest {
                 {
                     "jsonrpc": "2.0",
                     "id": 26,
-                    "method": "resources/fetch",
+                    "method": "resources/read",
                     "params": {
                         "uri": "myapp://error"
                     }

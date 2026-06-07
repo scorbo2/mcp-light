@@ -177,11 +177,13 @@ public class McpServer {
     }
 
     /**
-     * Registers a resource that clients can access via its URI.
+     * Registers a resource that clients can access via its URI. The resource can be anything,
+     * but it must be represented in string format (binary data being base64-encoded) and have
+     * an appropriate MIME type.
      *
      * @param resource The resource to register. Must not be null, and must have a valid name and URI.
      * @return true upon successful registration; false if a resource with the same name or URI is already registered.
-     * @throws IllegalArgumentException if you provide a null resource or one with an invalid name.
+     * @throws IllegalArgumentException if you provide a null resource or one with an invalid name, uri, or MIME type.
      */
     public boolean registerResource(McpResource resource) {
         if (resource == null) {
@@ -197,12 +199,16 @@ public class McpServer {
                                                        + "numbers, hyphens, or underscores. Invalid name: \""
                                                        + resourceName + "\"");
         }
+        if (resource.getMimeType() == null || resource.getMimeType().isBlank()) {
+            throw new IllegalArgumentException("Resource \"" + resourceName + "\" has no MIME type. " +
+                                                       "A valid MIME type is required to register a resource.");
+        }
         if (resources.stream().anyMatch(r -> r.getName().equals(resource.getName()))) {
             log.warning(
                     "McpServer: resource with name \"" + resource.getName() + "\" is already registered, ignoring.");
             return false;
         }
-        if (resources.stream().anyMatch(r -> r.matchesUri(resource.getUri()))) {
+        if (resources.stream().anyMatch(r -> r.getUri().equals(resource.getUri()))) {
             log.warning("McpServer: resource with URI \"" + resource.getUri() + "\" is already registered, ignoring.");
             return false;
         }
@@ -342,9 +348,10 @@ public class McpServer {
             if (!templates && resource.getUri().contains("{")) {
                 continue;
             }
+            String description = resource.getDescription() == null ? "" : resource.getDescription();
             resourceDefs.add(Map.of(
                     "name", resource.getName(),
-                    "description", resource.getDescription(),
+                    "description", description,
                     "uri", resource.getUri(),
                     "mimeType", resource.getMimeType()
             ));
@@ -378,7 +385,7 @@ public class McpServer {
                                                                         resource.getMimeType(),
                                                                         resource.isBinary() ? null : content,
                                                                         resource.isBinary() ? content : null);
-            return Map.of("resources", List.of(resourceContent));
+            return Map.of("contents", List.of(resourceContent));
         }
         catch (Exception e) {
             return Map.of("error", "Failed to fetch resource content: " + e.getMessage());
@@ -491,7 +498,7 @@ public class McpServer {
                 else if ("resources/templates/list".equals(method)) {
                     response.result = handleResourceList(true);
                 }
-                else if ("resources/fetch".equals(method)) {
+                else if ("resources/read".equals(method)) {
                     Map<String, Object> params = request.params != null ? request.params : Map.of();
                     String uri = params.get("uri") instanceof String ? (String)params.get("uri") : null;
                     if (uri == null || uri.isBlank()) {
