@@ -100,7 +100,7 @@ public class McpServer {
      * that actually got assigned. Otherwise, you should always get back the port that you configured.
      * (Or the default port if you didn't specify one at all).
      */
-    public int getPort() {
+    public synchronized int getPort() {
         if (server != null && server.getAddress() != null) {
             return server.getAddress().getPort();
         }
