@@ -375,21 +375,23 @@ public class McpServer {
             return Map.of("error", "URI cannot be blank");
         }
 
-        McpResource resource = null;
-        for (McpResource candidate : resources) {
-            // Look for an exact match first:
-            if (candidate.getUri().equals(uri)) {
-                resource = candidate;
-                break;
-            }
+        // Look for an exact match first:
+        McpResource resource = resources.stream()
+                                        .filter(r -> r.getUri().equals(uri))
+                                        .findFirst()
+                                        .orElse(null);
 
-            // If that failed, ask the candidate if it matches:
-            if (resource == null && candidate.matchesUri(uri)) {
-                resource = candidate;
-            }
+        // If we didn't find an exact match, see if any Resource reports that it matches:
+        if (resource == null) {
+            resource = resources.stream()
+                                .filter(r -> r.matchesUri(uri))
+                                .findFirst()
+                                .orElse(null);
         }
 
-        // If our lookup failed, just return null:
+        // (The double-loop approach above is O(2n) but it guarantees that exact matches take priority
+        //  over template matches. And it's doubtful we'll ever have more than a few resources anyway)
+        // If we found nothing, then we're done here:
         if (resource == null) {
             return null;
         }
