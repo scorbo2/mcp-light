@@ -27,11 +27,12 @@ public class ExampleApp {
             }
         }
         System.out.println("mcp-light example application starting on port " + port + "...");
-        McpServer server = new McpServer(port);
-        server.registerTool(new ExampleTool());
-        server.registerResource(new ExampleResource());
-        server.registerResource(new ExampleTemplateResource());
+        McpServer server;
         try {
+            server = new McpServer(port);
+            server.registerTool(new ExampleTool());
+            server.registerResource(new ExampleResource());
+            server.registerResource(new ExampleTemplateResource());
             server.start();
         }
         catch (Exception e) {
