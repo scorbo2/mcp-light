@@ -190,8 +190,8 @@ public class McpServer {
             throw new IllegalArgumentException("Resource cannot be null");
         }
         String resourceName = resource.getName();
-        if (resourceName == null || resource.getUri() == null) {
-            throw new IllegalArgumentException("Resource name and URI cannot be null");
+        if (resourceName == null || resource.getUri() == null || resource.getUri().isBlank()) {
+            throw new IllegalArgumentException("Resource name and URI cannot be null or blank");
         }
         // Check it against our pattern (this also ensures it's at least 1 character long):
         if (!ALPHA_NUMERIC_PATTERN.matcher(resourceName).matches()) {
@@ -374,13 +374,27 @@ public class McpServer {
             log.warning("McpServer: received resource fetch with blank URI.");
             return Map.of("error", "URI cannot be blank");
         }
-        McpResource resource = resources.stream()
-                                        .filter(r -> r.matchesUri(uri))
-                                        .findFirst()
-                                        .orElse(null);
+
+        McpResource resource = null;
+        for (McpResource candidate : resources) {
+            // Look for an exact match first:
+            if (candidate.getUri().equals(uri)) {
+                resource = candidate;
+                break;
+            }
+
+            // If that failed, ask the candidate if it matches:
+            if (resource == null && candidate.matchesUri(uri)) {
+                resource = candidate;
+            }
+        }
+
+        // If our lookup failed, just return null:
         if (resource == null) {
             return null;
         }
+
+        // Now we can try to fetch it and return it:
         try {
             log.info("McpServer: fetching resource at URI: " + uri);
             String content = resource.getContent(uri);
