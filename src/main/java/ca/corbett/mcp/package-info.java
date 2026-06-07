@@ -1,4 +1,3 @@
-package ca.corbett.mcp;
 /**
  * Contains a lightweight Java library that can be used to implement an embedded
  * MCP server in a Java application. Refer to the
@@ -16,3 +15,4 @@ package ca.corbett.mcp;
  *     (port 8080 on /mcp by default).</li>
  * </ol>
  */
+package ca.corbett.mcp;
