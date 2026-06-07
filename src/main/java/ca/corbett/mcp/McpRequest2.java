@@ -13,14 +13,14 @@ public class McpRequest2 {
     public String serverName;
     public Request request;
 
-    public class Request {
+    public static class Request {
         public String url;
         public String method;
         public Headers headers;
         public Body body;
         public List<String> jsonRpcMethods;
 
-        public class Headers {
+        public static class Headers {
             public String accept;
 
             @JsonAlias("content-type")
@@ -30,7 +30,7 @@ public class McpRequest2 {
             public String mcpProtocolVersion;
         }
 
-        public class Body {
+        public static class Body {
             public String kind;
             public int size;
         }
