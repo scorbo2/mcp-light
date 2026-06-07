@@ -78,8 +78,8 @@ public class ExampleApp {
 
         /**
          * This method will be invoked by McpServer when your tool is called.
-         * The input map will contain the validated argument list supplied by the caller.
-         * Note that this method executes on the Http thread!
+         * The input map will contain the argument list supplied by the caller (not validated by McpServer).
+         * Note that this method executes on the HTTP handler thread!
          * We currently only handle synchronous requests.
          */
         @Override
