@@ -21,10 +21,10 @@ To run it, simply clone the project, build with Maven/Java 25, and run the gener
 git clone https://github.com/scorbo2/mcp-light.git
 cd mcp-light
 mvn clean package
-java -jar target/mcp-light-1.0.jar
+java -jar target/mcp-light-1.1.jar
 
 # Or, start on a different port (default 8080):
-java -jar target/mcp-light-1.0.jar 9090
+java -jar target/mcp-light-1.1.jar 9090
 ```
 
 This will start a very simple MCP server with the following features:
@@ -83,7 +83,7 @@ The library is available in Maven Central, so you can just add it as a dependenc
 <dependency>
     <groupId>ca.corbett</groupId>
     <artifactId>mcp-light</artifactId>
-    <version>1.0</version>
+    <version>1.1</version>
 </dependency>
 ```
 
