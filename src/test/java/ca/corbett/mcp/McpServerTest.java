@@ -463,6 +463,9 @@ class McpServerTest {
         assertTrue(itemNode.has("type"));
         assertEquals("text", itemNode.get("type").asText());
         assertTrue(itemNode.has("text"));
+
+        // Issue #20 - the content item should NOT have an "isError" field:
+        assertFalse(itemNode.has("isError"));
     }
 
     @Test
@@ -523,7 +526,10 @@ class McpServerTest {
         assertTrue(itemNode.has("text"));
 
         // The item's text should contain our expected message:
-        assertTrue(itemNode.get("text").asText().equals("Tool execution failed: boom!"));
+        assertEquals("Tool execution failed: boom!", itemNode.get("text").asText());
+
+        // Issue #20 - the content item should NOT have an "isError" field:
+        assertFalse(itemNode.has("isError"));
     }
 
     @Test
