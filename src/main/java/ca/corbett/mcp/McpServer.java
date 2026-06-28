@@ -330,9 +330,10 @@ public class McpServer {
             isError = true;
             result = "Tool execution failed: " + e.getMessage();
         }
-        return Map.of("content", List.of(
-                new McpToolContent("text", result, isError)
-        ));
+        return Map.of(
+                "content", List.of(new McpToolContent("text", result)),
+                "isError", isError
+        );
     }
 
     /**

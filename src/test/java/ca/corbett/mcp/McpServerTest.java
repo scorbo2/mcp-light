@@ -1,5 +1,7 @@
 package ca.corbett.mcp;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -442,8 +444,25 @@ class McpServerTest {
                 }
                 """;
         String response = sendJsonRequest(body, port);
-        assertTrue(response.contains("\"type\":\"text\""));
-        assertTrue(response.contains("\"isError\":false"));
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode jsonResponse = mapper.readTree(response);
+
+        // isError should be at the result level, NOT inside content items:
+        JsonNode resultNode = jsonResponse.get("result");
+        assertTrue(resultNode.has("isError"));
+        assertFalse(resultNode.get("isError").asBoolean());
+        assertTrue(resultNode.has("content"));
+
+        // The content item list should have a single item in it:
+        JsonNode contentNode = resultNode.get("content");
+        assertTrue(contentNode.isArray());
+        assertEquals(1, contentNode.size());
+
+        // The single item should have a type of "text":
+        JsonNode itemNode = contentNode.get(0);
+        assertTrue(itemNode.has("type"));
+        assertEquals("text", itemNode.get("type").asText());
+        assertTrue(itemNode.has("text"));
     }
 
     @Test
@@ -483,8 +502,28 @@ class McpServerTest {
                 }
                 """;
         String response = sendJsonRequest(body, port);
-        assertTrue(response.contains("Tool execution failed"));
-        assertTrue(response.contains("boom!"));
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode jsonResponse = mapper.readTree(response);
+
+        // isError should be at the result level, NOT inside content items:
+        JsonNode resultNode = jsonResponse.get("result");
+        assertTrue(resultNode.has("isError"));
+        assertTrue(resultNode.get("isError").asBoolean());
+        assertTrue(resultNode.has("content"));
+
+        // The content item list should have a single item in it:
+        JsonNode contentNode = resultNode.get("content");
+        assertTrue(contentNode.isArray());
+        assertEquals(1, contentNode.size());
+
+        // The single item should have a type of "text":
+        JsonNode itemNode = contentNode.get(0);
+        assertTrue(itemNode.has("type"));
+        assertEquals("text", itemNode.get("type").asText());
+        assertTrue(itemNode.has("text"));
+
+        // The item's text should contain our expected message:
+        assertTrue(itemNode.get("text").asText().equals("Tool execution failed: boom!"));
     }
 
     @Test
