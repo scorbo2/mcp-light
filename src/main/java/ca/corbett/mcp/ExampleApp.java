@@ -1,9 +1,10 @@
 package ca.corbett.mcp;
 
+import java.util.List;
 import java.util.Map;
 
 /**
- * Contains a complete example of how to use the MCP library to host tools and resources.
+ * Contains a complete example of how to use the MCP library to host tools, resources, and prompts.
  * Run this class to spin up an MCP server on port 8080,
  * and then you can send JSON-RPC requests to it at "http://localhost:8080/mcp".
  *
@@ -33,6 +34,7 @@ public class ExampleApp {
             server.registerTool(new ExampleTool());
             server.registerResource(new ExampleResource());
             server.registerResource(new ExampleTemplateResource());
+            server.registerPrompt(new ExamplePrompt());
             server.start();
         }
         catch (Exception e) {
@@ -212,6 +214,38 @@ public class ExampleApp {
         public String getContent(String requestedUri) throws Exception {
             String id = requestedUri.substring("example://example/template/".length());
             return "Hello! This resource was served from a template. You requested the ID: " + id;
+        }
+    }
+
+    /**
+     * An example of a prompt that accepts arguments and returns messages.
+     */
+    static class ExamplePrompt implements McpPrompt {
+
+        @Override
+        public String getName() {
+            return "examplePrompt";
+        }
+
+        @Override
+        public String getDescription() {
+            return "An example of a prompt that accepts a topic argument.";
+        }
+
+        @Override
+        public List<McpPromptArgument> getArguments() {
+            return List.of(
+                    new McpPromptArgument("topic", "The topic to discuss", true)
+            );
+        }
+
+        @Override
+        public List<McpPromptMessage> getMessages(Map<String, Object> arguments) throws Exception {
+            String topic = arguments.getOrDefault("topic", "general").toString();
+            return List.of(
+                    new McpPromptMessage("user", "Please discuss the topic: " + topic),
+                    new McpPromptMessage("assistant", "I'd be happy to discuss " + topic + ". What would you like to know?")
+            );
         }
     }
 }
