@@ -470,6 +470,40 @@ class McpServerTest {
     }
 
     @Test
+    public void handleToolsList_withToolWithNullDescription_shouldReturnToolWithEmptyDescription() throws Exception {
+        int port = server.getPort();
+        server.registerTool(createTool("nullDescTool", null, "{\"type\":\"object\"}"));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 6,
+                    "method": "tools/list"
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("nullDescTool"));
+        assertFalse(response.contains("\"description\":")); // should not be present at all
+    }
+
+    @Test
+    public void handleToolsList_withToolWithNullInputSchema_shouldReturnToolWithEmptyInputSchema() throws Exception {
+        int port = server.getPort();
+        server.registerTool(createTool("nullInputTool", "A tool with null input schema", null));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 7,
+                    "method": "tools/list"
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("nullInputTool"));
+        assertTrue(response.contains("\"inputSchema\":{}")); // should be present but empty
+    }
+
+    @Test
     public void handleToolCall_withUnknownTool_shouldReturnError() throws Exception {
         int port = server.getPort();
 
