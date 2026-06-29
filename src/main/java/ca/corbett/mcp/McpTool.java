@@ -17,12 +17,33 @@ public interface McpTool {
 
     /**
      * Return a helpful description of what your tool does.
+     * Null/empty is allowed, but not recommended - give users of your tool an idea of what it does!
      */
     String getDescription();
 
     /**
      * Define the expected input parameters for your tool.
-     * TODO give an example or two, as this one might be non-obvious.
+     * Null is perfectly acceptable if your tool takes no parameters, but an empty map is preferred.
+     * <p>
+     * <b>EXAMPLE:</b>
+     * </p>
+     * <pre>
+     * return Map.of(
+     *   "type", "object",
+     *   "properties", Map.of(
+     *     "arg1", Map.of(
+     *       "type", "string",
+     *       "description", "The first argument (mandatory)."
+     *     ),
+     *     "arg2", Map.of(
+     *       "type", "integer",
+     *       "description", "The second argument (optional)."
+     *     )
+     *   ),
+     *   // Optionally mark an argument as required:
+     *   "required", new String[]{"arg1"}
+     * );
+     * </pre>
      */
     Map<String, Object> getInputSchema();
 
