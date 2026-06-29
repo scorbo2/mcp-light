@@ -12,6 +12,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -21,7 +22,7 @@ import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
 /**
- * An extremely lightweight MCP server implementation for simple tool calling.
+ * An extremely lightweight MCP server implementation supporting tools, resources, and prompts.
  *
  * @author <a href="https://github.com/scorbo2">scorbo2</a>
  */
@@ -43,7 +44,7 @@ public class McpServer {
     public static final String MCP_VERSION = "2024-10-07";
 
     /**
-     * We insist that tool names be alphanumeric with no spaces.
+     * We insist that tool, resource, and prompt names be alphanumeric with no spaces.
      * As far as I know, the protocol only insists that the first character should be a letter,
      * but we'll go a bit further and only allow letters, numbers, underscores, and hyphens.
      */
@@ -62,6 +63,7 @@ public class McpServer {
     private HttpServer server;
     private final List<McpTool> tools = new CopyOnWriteArrayList<>();
     private final List<McpResource> resources = new CopyOnWriteArrayList<>();
+    private final List<McpPrompt> prompts = new CopyOnWriteArrayList<>();
 
     public McpServer() {
         this(DEFAULT_PORT, DEFAULT_PATH, DEFAULT_THREADS);
@@ -238,6 +240,59 @@ public class McpServer {
         return removed;
     }
 
+    /**
+     * Registers a prompt that clients can list and retrieve via "prompts/list" and "prompts/get" methods.
+     * The prompt name must be non-null and unique among registered prompts, and must match our ALPHA_NUMERIC_PATTERN.
+     *
+     * @param prompt The prompt to register. Must not be null, and must have a valid name.
+     * @return true if the prompt was successfully registered, or false if a prompt with the same name is already registered.
+     * @throws IllegalArgumentException if you provide a null prompt or one with an invalid name.
+     */
+    public boolean registerPrompt(McpPrompt prompt) {
+        if (prompt == null) {
+            throw new IllegalArgumentException("Prompt cannot be null");
+        }
+        String promptName = prompt.getName();
+        if (promptName == null) {
+            throw new IllegalArgumentException("Prompt name cannot be null");
+        }
+
+        // Check it against our pattern (this also ensures it's at least 1 character long):
+        if (!ALPHA_NUMERIC_PATTERN.matcher(promptName).matches()) {
+            throw new IllegalArgumentException("Prompt name must start with a letter and then only contain letters, "
+                                                       + "numbers, hyphens, or underscores. Invalid name: \""
+                                                       + promptName + "\"");
+        }
+
+        if (prompts.stream().anyMatch(p -> p.getName().equals(prompt.getName()))) {
+            log.warning("McpServer: prompt with name \"" + prompt.getName() + "\" is already registered, ignoring.");
+            return false;
+        }
+        prompts.add(prompt);
+        log.info("McpServer: registered prompt \"" + prompt.getName() + "\"");
+        return true;
+    }
+
+    /**
+     * Unregisters a prompt by name (case-sensitive).
+     *
+     * @param promptName The name of the prompt to remove. Must not be null or blank.
+     * @return true if a prompt was removed, or false if no prompt with the given name was found.
+     * @throws IllegalArgumentException if the prompt name is null or blank.
+     */
+    public boolean unregisterPrompt(String promptName) {
+        if (promptName == null || promptName.isBlank()) {
+            throw new IllegalArgumentException("Prompt name cannot be null or blank");
+        }
+        boolean removed = prompts.removeIf(p -> p.getName().equals(promptName));
+        if (removed) {
+            log.info("McpServer: unregistered prompt \"" + promptName + "\"");
+        } else {
+            log.warning("McpServer: no prompt with name \"" + promptName + "\" found to unregister.");
+        }
+        return removed;
+    }
+
     public synchronized boolean isUp() {
         return server != null && server.getAddress() != null;
     }
@@ -280,7 +335,8 @@ public class McpServer {
                 "protocolVersion", MCP_VERSION,
                 "capabilities", Map.of(
                         "tools", Map.of("listChanged", false),
-                        "resources", Map.of("listChanged", false, "subscribe", false)
+                        "resources", Map.of("listChanged", false, "subscribe", false),
+                        "prompts", Map.of("listChanged", false)
                 ),
                 "serverInfo", Map.of("name", "mcp-light", "version", VERSION)
         );
@@ -409,6 +465,65 @@ public class McpServer {
         }
         catch (Exception e) {
             return Map.of("error", "Failed to fetch resource content: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Generates a list of our registered prompts in the format expected by clients.
+     */
+    private Map<String, Object> handlePromptsList() {
+        List<Map<String, Object>> promptDefs = new ArrayList<>();
+        for (McpPrompt prompt : prompts) {
+            Map<String, Object> def = new HashMap<>();
+            def.put("name", prompt.getName());
+            def.put("description", prompt.getDescription() == null ? "" : prompt.getDescription());
+            List<Map<String, Object>> argList = new ArrayList<>();
+            for (McpPromptArgument arg : prompt.getArguments()) {
+                Map<String, Object> argDef = new HashMap<>();
+                argDef.put("name", arg.getName());
+                argDef.put("description", arg.getDescription() == null ? "" : arg.getDescription());
+                argDef.put("required", arg.isRequired());
+                argList.add(argDef);
+            }
+            def.put("arguments", argList);
+            promptDefs.add(def);
+        }
+        return Map.of("prompts", promptDefs);
+    }
+
+    /**
+     * Returns the messages for a prompt by name, optionally filtered by arguments.
+     * If the return is null, the given prompt name was not found.
+     *
+     * @param promptName The name of the prompt to retrieve.
+     * @param arguments  The arguments to pass to the prompt, or null/empty if none were provided.
+     * @return The prompt response (or error response), or null if no such prompt was found.
+     */
+    private Map<String, Object> handlePromptGet(String promptName, Map<String, Object> arguments) {
+        if (promptName == null || promptName.isBlank()) {
+            log.warning("McpServer: received prompt get with blank prompt name.");
+            return null;
+        }
+
+        McpPrompt prompt = prompts.stream()
+                .filter(p -> p.getName().equals(promptName))
+                .findFirst()
+                .orElse(null);
+
+        if (prompt == null) {
+            return null;
+        }
+
+        try {
+            log.info("McpServer: retrieving prompt \"" + promptName + "\"");
+            List<McpPromptMessage> messages = prompt.getMessages(arguments != null ? arguments : Map.of());
+            return Map.of(
+                    "description", prompt.getDescription() == null ? "" : prompt.getDescription(),
+                    "messages", messages
+            );
+        }
+        catch (Exception e) {
+            return Map.of("error", "Failed to get prompt \"" + promptName + "\": " + e.getMessage());
         }
     }
 
@@ -624,6 +739,35 @@ public class McpServer {
                         }
                         else {
                             response.result = toolResult;
+                        }
+                    }
+                    else if ("prompts/list".equals(method)) {
+                        response.result = handlePromptsList();
+                    }
+                    else if ("prompts/get".equals(method)) {
+                        Map<String, Object> params = request.params != null ? request.params : Map.of();
+                        String promptName = params.get("name") instanceof String ? (String)params.get("name") : null;
+                        Object promptArgs = params.get("arguments");
+                        Map<String, Object> promptArguments = Map.of();
+                        if (promptArgs instanceof Map<?, ?> args) {
+                            // noinspection unchecked
+                            promptArguments = (Map<String, Object>)args;
+                        }
+                        else if (promptArgs != null) {
+                            log.warning("McpServer: expected prompt arguments to be a map, but got: " + promptArgs);
+                        }
+                        Map<String, Object> promptResult = handlePromptGet(promptName, promptArguments);
+                        if (promptResult == null) {
+                            log.severe("McpServer: no prompt found with name: " + promptName);
+                            response.error = Map.of("code", McpError.PROMPT_NOT_FOUND.getCode(),
+                                                    "message", "No such prompt: " + promptName);
+                        }
+                        else if (promptResult.get("error") != null) {
+                            response.error = Map.of("code", McpError.INTERNAL_ERROR.getCode(),
+                                                    "message", promptResult.get("error"));
+                        }
+                        else {
+                            response.result = promptResult;
                         }
                     }
                     else {
