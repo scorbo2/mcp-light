@@ -756,18 +756,25 @@ public class McpServer {
                         else if (promptArgs != null) {
                             log.warning("McpServer: expected prompt arguments to be a map, but got: " + promptArgs);
                         }
-                        Map<String, Object> promptResult = handlePromptGet(promptName, promptArguments);
-                        if (promptResult == null) {
-                            log.severe("McpServer: no prompt found with name: " + promptName);
-                            response.error = Map.of("code", McpError.PROMPT_NOT_FOUND.getCode(),
-                                                    "message", "No such prompt: " + promptName);
-                        }
-                        else if (promptResult.get("error") != null) {
-                            response.error = Map.of("code", McpError.INTERNAL_ERROR.getCode(),
-                                                    "message", promptResult.get("error"));
+                        if (promptName == null || promptName.isBlank()) {
+                            log.severe("McpServer: received prompt get request with missing or blank name.");
+                            response.error = Map.of("code", McpError.INVALID_PARAMS.getCode(),
+                                                    "message", "Missing or blank 'name' parameter");
                         }
                         else {
-                            response.result = promptResult;
+                            Map<String, Object> promptResult = handlePromptGet(promptName, promptArguments);
+                            if (promptResult == null) {
+                                log.severe("McpServer: no prompt found with name: " + promptName);
+                                response.error = Map.of("code", McpError.PROMPT_NOT_FOUND.getCode(),
+                                                        "message", "No such prompt: " + promptName);
+                            }
+                            else if (promptResult.get("error") != null) {
+                                response.error = Map.of("code", McpError.INTERNAL_ERROR.getCode(),
+                                                        "message", promptResult.get("error"));
+                            }
+                            else {
+                                response.result = promptResult;
+                            }
                         }
                     }
                     else {

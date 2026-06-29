@@ -1237,7 +1237,7 @@ class McpServerTest {
     }
 
     @Test
-    public void handlePromptGet_withBlankName_shouldReturnNotFound() throws Exception {
+    public void handlePromptGet_withBlankName_shouldComplain() throws Exception {
         int port = server.getPort();
 
         String body = """
@@ -1252,11 +1252,11 @@ class McpServerTest {
                 """;
         String response = sendJsonRequest(body, port);
         assertTrue(response.contains("error"));
-        assertTrue(response.contains("No such prompt: "));
+        assertTrue(response.contains("Missing or blank"));
     }
 
     @Test
-    public void handlePromptGet_withMissingName_shouldReturnNotFound() throws Exception {
+    public void handlePromptGet_withMissingName_shouldComplain() throws Exception {
         int port = server.getPort();
 
         String body = """
@@ -1268,7 +1268,7 @@ class McpServerTest {
                 """;
         String response = sendJsonRequest(body, port);
         assertTrue(response.contains("error"));
-        assertTrue(response.contains("No such prompt: "));
+        assertTrue(response.contains("Missing or blank"));
     }
 
     @Test
