@@ -350,11 +350,15 @@ public class McpServer {
     private Map<String, Object> handleToolsList() {
         List<Map<String, Object>> toolDefs = new ArrayList<>();
         for (McpTool tool : tools) {
-            toolDefs.add(Map.of(
-                    "name", tool.getName(),
-                    "description", tool.getDescription(),
-                    "inputSchema", tool.getInputSchema()
-            ));
+            Map<String, Object> toolDef = new HashMap<>();
+            toolDef.put("name", tool.getName());
+            String description = tool.getDescription();
+            if (description != null && !description.isBlank()) {
+                toolDef.put("description", description); // description is optional
+            }
+            Map<String, Object> inputSchema = tool.getInputSchema();
+            toolDef.put("inputSchema", inputSchema != null ? inputSchema : Map.of());
+            toolDefs.add(toolDef);
         }
         return Map.of("tools", toolDefs);
     }
