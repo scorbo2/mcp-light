@@ -114,7 +114,7 @@ public class ExampleApp {
         /**
          * Name is mandatory, and must be unique across registered resources.
          * The rules for resource names are the same as for tool names:
-         * they must begin with a letter and can only contain letters, numbers, hyphens, and underscores.
+         * they may only contain letters, digits, dots, hyphens, and underscores.
          */
         @Override
         public String getName() {

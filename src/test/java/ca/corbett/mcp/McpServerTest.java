@@ -143,12 +143,48 @@ class McpServerTest {
     @Test
     public void registerTool_withInvalidName_shouldThrow() {
         McpTool tool = new McpTool() {
-            public String getName() { return "123bad"; }
+            public String getName() { return "bad name"; }
             public String getDescription() { return "desc"; }
             public Map<String, Object> getInputSchema() { return Map.of(); }
             public String execute(Map<String, Object> input) { return "ok"; }
         };
         assertThrows(IllegalArgumentException.class, () -> server.registerTool(tool));
+    }
+
+    @Test
+    public void registerTool_withDigitFirstName_shouldReturnTrue() {
+        McpTool tool = createTool("123tool", "A tool starting with digits", "ok");
+        assertTrue(server.registerTool(tool));
+    }
+
+    @Test
+    public void registerTool_withDotInName_shouldReturnTrue() {
+        McpTool tool = createTool("my.tool", "A tool with a dot", "ok");
+        assertTrue(server.registerTool(tool));
+    }
+
+    @Test
+    public void registerTool_withStrangeYetValidName_shouldReturnTrue() {
+        // These are all technically valid names according to the MCP spec, but very strange:
+        String[] bizarreNames = {
+                ".",
+                "..",
+                "-",
+                "_",
+                ".-_.-_.-_.-_"
+        };
+        for (String bizarreName : bizarreNames) {
+            McpTool tool = createTool(bizarreName, "A tool with a bizarre name", "ok");
+            assertTrue(server.registerTool(tool), "Failed to register tool with name: " + bizarreName);
+        }
+    }
+
+    @Test
+    public void registerTool_withCaseInsensitiveDuplicateName_shouldReturnFalse() {
+        McpTool tool1 = createTool("myTool", "A tool", "ok");
+        McpTool tool2 = createTool("MYTOOL", "Another tool with same name in different case", "ok2");
+        assertTrue(server.registerTool(tool1));
+        assertFalse(server.registerTool(tool2));
     }
 
     @Test
@@ -196,6 +232,13 @@ class McpServerTest {
     @Test
     public void unregisterTool_withBlankName_shouldThrow() {
         assertThrows(IllegalArgumentException.class, () -> server.unregisterTool(""));
+    }
+
+    @Test
+    public void unregisterTool_withDifferentCase_shouldUnregister() {
+        McpTool tool = createTool("myTool", "A tool", "ok");
+        server.registerTool(tool);
+        assertTrue(server.unregisterTool("MYTOOL")); // case-insensitive unregistration
     }
 
     // ==================== Resource Registration ====================
@@ -269,7 +312,7 @@ class McpServerTest {
     public void registerResource_withInvalidName_shouldThrow() {
         McpResource resource = new McpResource() {
             public String getName() {
-                return "123bad";
+                return "bad name";
             }
 
             public String getDescription() {
@@ -293,6 +336,14 @@ class McpServerTest {
             }
         };
         assertThrows(IllegalArgumentException.class, () -> server.registerResource(resource));
+    }
+
+    @Test
+    public void registerResource_withCaseInsensitiveDuplicateName_shouldReturnFalse() {
+        McpResource resource1 = createResource("myResource", "A resource", "myapp://resource1", "content1");
+        McpResource resource2 = createResource("MYRESOURCE", "Another resource", "myapp://resource2", "content2");
+        assertTrue(server.registerResource(resource1));
+        assertFalse(server.registerResource(resource2));
     }
 
     @Test
@@ -339,6 +390,13 @@ class McpServerTest {
     @Test
     public void unregisterResource_withBlankName_shouldThrow() {
         assertThrows(IllegalArgumentException.class, () -> server.unregisterResource(""));
+    }
+
+    @Test
+    public void unregisterResource_withDifferentCase_shouldUnregister() {
+        McpResource resource = createResource("myResource", "A resource", "myapp://resource", "content");
+        server.registerResource(resource);
+        assertTrue(server.unregisterResource("MYRESOURCE")); // case-insensitive unregistration
     }
 
     // ==================== HTTP Endpoint Tests ====================
@@ -467,6 +525,33 @@ class McpServerTest {
 
         // Issue #20 - the content item should NOT have an "isError" field:
         assertFalse(itemNode.has("isError"));
+    }
+
+    @Test
+    public void handleToolCall_withDifferentCase_shouldInvokeTool() throws Exception {
+        int port = server.getPort();
+        server.registerTool(createTool("myTool", "Does something", "{\"type\":\"object\"}"));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 5,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "MYTOOL",
+                        "arguments": { "message": "hello" }
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode jsonResponse = mapper.readTree(response);
+
+        // Should have executed without error:
+        JsonNode resultNode = jsonResponse.get("result");
+        assertTrue(resultNode.has("isError"));
+        assertFalse(resultNode.get("isError").asBoolean());
+        assertTrue(resultNode.has("content"));
     }
 
     @Test
@@ -1118,12 +1203,20 @@ class McpServerTest {
     @Test
     public void registerPrompt_withInvalidName_shouldThrow() {
         McpPrompt prompt = new McpPrompt() {
-            public String getName() { return "123bad"; }
+            public String getName() { return "bad name"; }
             public String getDescription() { return "A prompt"; }
             public List<McpPromptArgument> getArguments() { return List.of(); }
             public List<McpPromptMessage> getMessages(Map<String, Object> arguments) { return List.of(); }
         };
         assertThrows(IllegalArgumentException.class, () -> server.registerPrompt(prompt));
+    }
+
+    @Test
+    public void registerPrompt_withCaseInsensitiveDuplicateName_shouldReturnFalse() {
+        McpPrompt prompt1 = createPrompt("myPrompt", "A prompt", List.of(), List.of());
+        McpPrompt prompt2 = createPrompt("MYPROMPT", "Another prompt with same name in different case", List.of(), List.of());
+        assertTrue(server.registerPrompt(prompt1));
+        assertFalse(server.registerPrompt(prompt2));
     }
 
     @Test
@@ -1160,6 +1253,13 @@ class McpServerTest {
     @Test
     public void unregisterPrompt_withBlankName_shouldThrow() {
         assertThrows(IllegalArgumentException.class, () -> server.unregisterPrompt(""));
+    }
+
+    @Test
+    public void unregisterPrompt_withDifferentCase_shouldUnregister() {
+        McpPrompt prompt = createPrompt("myPrompt", "A prompt", List.of(), List.of());
+        server.registerPrompt(prompt);
+        assertTrue(server.unregisterPrompt("MYPROMPT")); // case-insensitive unregistration
     }
 
     // ==================== Prompt HTTP Endpoint Tests ====================
@@ -1268,6 +1368,29 @@ class McpServerTest {
         String response = sendJsonRequest(body, port);
         assertTrue(response.contains("error"));
         assertTrue(response.contains("No such prompt: nonexistent"));
+    }
+
+    @Test
+    public void handlePromptGet_withDifferentCase_shouldReturnPrompt() throws Exception {
+        int port = server.getPort();
+        List<McpPromptMessage> messages = List.of(new McpPromptMessage("user", "Hello world"));
+        server.registerPrompt(createPrompt("simple", "A simple prompt", List.of(), messages));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 32,
+                    "method": "prompts/get",
+                    "params": {
+                        "name": "SiMplE"
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("Hello world"));
+        assertTrue(response.contains("description"));
+        assertTrue(response.contains("\"role\":\"user\""));
+
     }
 
     @Test
