@@ -143,12 +143,32 @@ class McpServerTest {
     @Test
     public void registerTool_withInvalidName_shouldThrow() {
         McpTool tool = new McpTool() {
-            public String getName() { return "123bad"; }
+            public String getName() { return "bad name"; }
             public String getDescription() { return "desc"; }
             public Map<String, Object> getInputSchema() { return Map.of(); }
             public String execute(Map<String, Object> input) { return "ok"; }
         };
         assertThrows(IllegalArgumentException.class, () -> server.registerTool(tool));
+    }
+
+    @Test
+    public void registerTool_withDigitFirstName_shouldReturnTrue() {
+        McpTool tool = createTool("123tool", "A tool starting with digits", "ok");
+        assertTrue(server.registerTool(tool));
+    }
+
+    @Test
+    public void registerTool_withDotInName_shouldReturnTrue() {
+        McpTool tool = createTool("my.tool", "A tool with a dot", "ok");
+        assertTrue(server.registerTool(tool));
+    }
+
+    @Test
+    public void registerTool_withCaseInsensitiveDuplicateName_shouldReturnFalse() {
+        McpTool tool1 = createTool("myTool", "A tool", "ok");
+        McpTool tool2 = createTool("MYTOOL", "Another tool with same name in different case", "ok2");
+        assertTrue(server.registerTool(tool1));
+        assertFalse(server.registerTool(tool2));
     }
 
     @Test
@@ -269,7 +289,7 @@ class McpServerTest {
     public void registerResource_withInvalidName_shouldThrow() {
         McpResource resource = new McpResource() {
             public String getName() {
-                return "123bad";
+                return "bad name";
             }
 
             public String getDescription() {
@@ -293,6 +313,14 @@ class McpServerTest {
             }
         };
         assertThrows(IllegalArgumentException.class, () -> server.registerResource(resource));
+    }
+
+    @Test
+    public void registerResource_withCaseInsensitiveDuplicateName_shouldReturnFalse() {
+        McpResource resource1 = createResource("myResource", "A resource", "myapp://resource1", "content1");
+        McpResource resource2 = createResource("MYRESOURCE", "Another resource", "myapp://resource2", "content2");
+        assertTrue(server.registerResource(resource1));
+        assertFalse(server.registerResource(resource2));
     }
 
     @Test
@@ -1118,12 +1146,20 @@ class McpServerTest {
     @Test
     public void registerPrompt_withInvalidName_shouldThrow() {
         McpPrompt prompt = new McpPrompt() {
-            public String getName() { return "123bad"; }
+            public String getName() { return "bad name"; }
             public String getDescription() { return "A prompt"; }
             public List<McpPromptArgument> getArguments() { return List.of(); }
             public List<McpPromptMessage> getMessages(Map<String, Object> arguments) { return List.of(); }
         };
         assertThrows(IllegalArgumentException.class, () -> server.registerPrompt(prompt));
+    }
+
+    @Test
+    public void registerPrompt_withCaseInsensitiveDuplicateName_shouldReturnFalse() {
+        McpPrompt prompt1 = createPrompt("myPrompt", "A prompt", List.of(), List.of());
+        McpPrompt prompt2 = createPrompt("MYPROMPT", "Another prompt with same name in different case", List.of(), List.of());
+        assertTrue(server.registerPrompt(prompt1));
+        assertFalse(server.registerPrompt(prompt2));
     }
 
     @Test
