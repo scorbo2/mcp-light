@@ -164,6 +164,22 @@ class McpServerTest {
     }
 
     @Test
+    public void registerTool_withStrangeYetValidName_shouldReturnTrue() {
+        // These are all technically valid names according to the MCP spec, but very strange:
+        String[] bizarreNames = {
+                ".",
+                "..",
+                "-",
+                "_",
+                ".-_.-_.-_.-_"
+        };
+        for (String bizarreName : bizarreNames) {
+            McpTool tool = createTool(bizarreName, "A tool with a bizarre name", "ok");
+            assertTrue(server.registerTool(tool), "Failed to register tool with name: " + bizarreName);
+        }
+    }
+
+    @Test
     public void registerTool_withCaseInsensitiveDuplicateName_shouldReturnFalse() {
         McpTool tool1 = createTool("myTool", "A tool", "ok");
         McpTool tool2 = createTool("MYTOOL", "Another tool with same name in different case", "ok2");
@@ -216,6 +232,13 @@ class McpServerTest {
     @Test
     public void unregisterTool_withBlankName_shouldThrow() {
         assertThrows(IllegalArgumentException.class, () -> server.unregisterTool(""));
+    }
+
+    @Test
+    public void unregisterTool_withDifferentCase_shouldUnregister() {
+        McpTool tool = createTool("myTool", "A tool", "ok");
+        server.registerTool(tool);
+        assertTrue(server.unregisterTool("MYTOOL")); // case-insensitive unregistration
     }
 
     // ==================== Resource Registration ====================
@@ -369,6 +392,13 @@ class McpServerTest {
         assertThrows(IllegalArgumentException.class, () -> server.unregisterResource(""));
     }
 
+    @Test
+    public void unregisterResource_withDifferentCase_shouldUnregister() {
+        McpResource resource = createResource("myResource", "A resource", "myapp://resource", "content");
+        server.registerResource(resource);
+        assertTrue(server.unregisterResource("MYRESOURCE")); // case-insensitive unregistration
+    }
+
     // ==================== HTTP Endpoint Tests ====================
 
     @Test
@@ -495,6 +525,33 @@ class McpServerTest {
 
         // Issue #20 - the content item should NOT have an "isError" field:
         assertFalse(itemNode.has("isError"));
+    }
+
+    @Test
+    public void handleToolCall_withDifferentCase_shouldInvokeTool() throws Exception {
+        int port = server.getPort();
+        server.registerTool(createTool("myTool", "Does something", "{\"type\":\"object\"}"));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 5,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "MYTOOL",
+                        "arguments": { "message": "hello" }
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode jsonResponse = mapper.readTree(response);
+
+        // Should have executed without error:
+        JsonNode resultNode = jsonResponse.get("result");
+        assertTrue(resultNode.has("isError"));
+        assertFalse(resultNode.get("isError").asBoolean());
+        assertTrue(resultNode.has("content"));
     }
 
     @Test
@@ -1198,6 +1255,13 @@ class McpServerTest {
         assertThrows(IllegalArgumentException.class, () -> server.unregisterPrompt(""));
     }
 
+    @Test
+    public void unregisterPrompt_withDifferentCase_shouldUnregister() {
+        McpPrompt prompt = createPrompt("myPrompt", "A prompt", List.of(), List.of());
+        server.registerPrompt(prompt);
+        assertTrue(server.unregisterPrompt("MYPROMPT")); // case-insensitive unregistration
+    }
+
     // ==================== Prompt HTTP Endpoint Tests ====================
 
     @Test
@@ -1304,6 +1368,29 @@ class McpServerTest {
         String response = sendJsonRequest(body, port);
         assertTrue(response.contains("error"));
         assertTrue(response.contains("No such prompt: nonexistent"));
+    }
+
+    @Test
+    public void handlePromptGet_withDifferentCase_shouldReturnPrompt() throws Exception {
+        int port = server.getPort();
+        List<McpPromptMessage> messages = List.of(new McpPromptMessage("user", "Hello world"));
+        server.registerPrompt(createPrompt("simple", "A simple prompt", List.of(), messages));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 32,
+                    "method": "prompts/get",
+                    "params": {
+                        "name": "SiMplE"
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("Hello world"));
+        assertTrue(response.contains("description"));
+        assertTrue(response.contains("\"role\":\"user\""));
+
     }
 
     @Test

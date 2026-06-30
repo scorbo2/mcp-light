@@ -384,7 +384,7 @@ public class McpServer {
             return null;
         }
         McpTool tool = tools.stream()
-                .filter(t -> t.getName().equals(toolName))
+                            .filter(t -> t.getName().equalsIgnoreCase(toolName))
                 .findFirst()
                 .orElse(null);
         if (tool == null) {
@@ -521,7 +521,7 @@ public class McpServer {
         }
 
         McpPrompt prompt = prompts.stream()
-                .filter(p -> p.getName().equals(promptName))
+                                  .filter(p -> p.getName().equalsIgnoreCase(promptName))
                 .findFirst()
                 .orElse(null);
 
