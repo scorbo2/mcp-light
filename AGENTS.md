@@ -17,11 +17,12 @@ Single package `ca.corbett.mcp`. No framework — bare Java 25 + `com.sun.net.ht
 - **`McpServer`** — HTTP server (port/path configurable). Registers tools/resources, routes JSON-RPC methods.
 - **`McpTool`** — interface to implement for callable tools. `execute()` runs on the HTTP handler thread (synchronous).
 - **`McpResource`** — interface to implement for readable resources. `getContent()` runs on the HTTP handler thread. Supports binary (base64) via `isBinary()`.
+- **`McpPrompt`** — interface to implement for prompts.
 - **`ExampleApp`** — runnable entry point with sample tool and resources. Set as main class in the jar manifest.
 
 ## Gotchas
 
-- **Tool/resource names** must match `^[a-zA-Z][a-zA-Z0-9_-]*$` (enforced at registration).
+- **Tool/resource/prompt names** Tool/resource/prompt names must match `^[a-zA-Z0-9._-]+$` and are treated as case-insensitively unique — enforced at registration and will throw `IllegalArgumentException` for invalid names.
 - **Jackson** is configured for case-insensitive property matching and ignoring unknown properties — MCP clients may send slightly malformed JSON.
 - **Port 0** in the constructor = random available port (useful for tests). Use `server.getPort()` to discover it.
 - **`McpServer`** is thread-safe for register/unregister via `CopyOnWriteArrayList`.

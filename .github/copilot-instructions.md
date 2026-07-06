@@ -21,6 +21,7 @@ Single package `ca.corbett.mcp`. No framework — bare Java 25 + `com.sun.net.ht
 - **`McpServer`** — HTTP server. Accepts port/path/threads in constructor. Routes JSON-RPC 2.0 methods (`initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `ping`). Supports OPTIONS for CORS.
 - **`McpTool`** — interface for callable tools. Implement `getName()`, `getDescription()`, `getInputSchema()`, and `execute(Map<String, Object> input)`.
 - **`McpResource`** — interface for readable resources. Implement `getName()`, `getUri()`, `matchesUri(String)`, `getMimeType()`, and `getContent(String requestedUri)`. Optional `isBinary()` for base64 content.
+- **`McpPrompt`** — interface for prompts. Implement `getName()`, `getDescription()`, `getArguments()`, and `getMessages()`.
 - **`ExampleApp`** — runnable main class (set in jar manifest). Shows how to wire up a server with tools and resources.
 - **`McpRequest` / `McpRequest2`** — Jackson-mapped request models.
 - **`McpResponse` / `McpError` / `McpToolContent` / `McpResourceContent`** — response/error payload models.
@@ -29,13 +30,13 @@ Single package `ca.corbett.mcp`. No framework — bare Java 25 + `com.sun.net.ht
 
 ## Key Conventions
 
-**Naming:** Tool and resource names must match `^[a-zA-Z][a-zA-Z0-9_-]*$` — enforced at registration and will throw `IllegalArgumentException`.
+**Naming:** Tool/resource/prompt names must match `^[a-zA-Z0-9._-]+$` and are treated as case-insensitively unique — enforced at registration and will throw `IllegalArgumentException` for invalid names.
 
 **Testing:** Always use port 0 in tests (`new McpServer(0)`), then discover the actual port via `server.getPort()`. Never hardcode a port in tests.
 
 **Thread model:** `execute()` (tools) and `getContent()` (resources) run on the HTTP handler thread — keep them synchronous and fast. No async support.
 
-**Thread safety:** `McpServer` uses `CopyOnWriteArrayList` for tools and resources, so `registerTool()`/`registerResource()`/`unregisterTool()`/`unregisterResource()` are safe to call at any time.
+**Thread safety:** `McpServer` uses `CopyOnWriteArrayList` for tools, resources, and prompts, so `registerTool()`/`registerResource()`/`registerPrompt()`/`unregisterTool()`/`unregisterResource()`/`unregisterPrompt()` are safe to call at any time.
 
 **Jackson config:** `ACCEPT_CASE_INSENSITIVE_PROPERTIES` + `FAIL_ON_UNKNOWN_PROPERTIES=false` — handles slightly malformed MCP client JSON.
 
