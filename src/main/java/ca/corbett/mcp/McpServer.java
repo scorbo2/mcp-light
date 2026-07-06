@@ -12,6 +12,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -21,7 +22,16 @@ import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
 /**
- * An extremely lightweight MCP server implementation for simple tool calling.
+ * An extremely lightweight MCP server implementation supporting tools, resources, and prompts.
+ * <p>
+ * <B>A note about names</B> - the MCP spec requires tool, resource, and prompt names to be unique.
+ * We enforce that here, but go a little bit further by doing a case-insensitive uniqueness check.
+ * It just seems like a bad idea to allow tools named doSomething, DoSomething, and dosomething to co-exist
+ * on the same server. So, registration and unregistration methods in this class are explicitly case-insensitive.
+ * Attempting to register a duplicate name will be rejected (return false). This also means that you can
+ * unregister something with a different case, and it will work. For example, you can register a
+ * tool with the name "doSomething" and then later unregister it via "DoSomething".
+ * </p>
  *
  * @author <a href="https://github.com/scorbo2">scorbo2</a>
  */
@@ -35,7 +45,7 @@ public class McpServer {
     /**
      * This is OUR version, not the MCP protocol version that we understand.
      */
-    public static final String VERSION = "1.0";
+    public static final String VERSION = "1.1";
 
     /**
      * This is the version of the MCP protocol that we will report to clients.
@@ -43,11 +53,11 @@ public class McpServer {
     public static final String MCP_VERSION = "2024-10-07";
 
     /**
-     * We insist that tool names be alphanumeric with no spaces.
-     * As far as I know, the protocol only insists that the first character should be a letter,
-     * but we'll go a bit further and only allow letters, numbers, underscores, and hyphens.
+     * Tool, resource, and prompt names must be non-empty and may only contain letters, digits,
+     * dots, underscores, and hyphens. The MCP spec does not require the first character to be a
+     * letter, and explicitly permits dots in names.
      */
-    private static final Pattern ALPHA_NUMERIC_PATTERN = Pattern.compile("^[a-zA-Z][a-zA-Z0-9_-]*$");
+    private static final Pattern NAME_PATTERN = Pattern.compile("^[a-zA-Z0-9._-]+$");
 
     private static final Logger log = Logger.getLogger(McpServer.class.getName());
 
@@ -62,6 +72,7 @@ public class McpServer {
     private HttpServer server;
     private final List<McpTool> tools = new CopyOnWriteArrayList<>();
     private final List<McpResource> resources = new CopyOnWriteArrayList<>();
+    private final List<McpPrompt> prompts = new CopyOnWriteArrayList<>();
 
     public McpServer() {
         this(DEFAULT_PORT, DEFAULT_PATH, DEFAULT_THREADS);
@@ -118,7 +129,8 @@ public class McpServer {
 
     /**
      * Registers a tool that clients can call via the "tools/call" method.
-     * The tool name must be non-null and unique among registered tools, and must match our ALPHA_NUMERIC_PATTERN.
+     * The tool name must be non-null and unique (case-insensitively) among registered tools,
+     * and must match our NAME_PATTERN.
      * Tools <i>should</i> have a description, but this is not enforced here.
      *
      * @param tool The tool to register. Must not be null, and must have a valid name.
@@ -135,9 +147,9 @@ public class McpServer {
         }
 
         // Check it against our pattern (this also ensures it's at least 1 character long):
-        if (!ALPHA_NUMERIC_PATTERN.matcher(toolName).matches()) {
-            throw new IllegalArgumentException("Tool name must start with a letter and then only contain letters, " +
-                                                       "numbers, hyphens, or underscores. Invalid name: \"" + toolName + "\"");
+        if (!NAME_PATTERN.matcher(toolName).matches()) {
+            throw new IllegalArgumentException("Tool name must only contain letters, digits, dots, "
+                                                       + "hyphens, or underscores. Invalid name: \"" + toolName + "\"");
         }
 
         // We won't insist on a description, but we'll nag the caller if it's missing:
@@ -146,7 +158,7 @@ public class McpServer {
                                 + "\" has no description. It's recommended to provide one for better client integration.");
         }
 
-        if (tools.stream().anyMatch(t -> t.getName().equals(tool.getName()))) {
+        if (tools.stream().anyMatch(t -> t.getName().equalsIgnoreCase(tool.getName()))) {
             log.warning("McpServer: tool with name \"" + tool.getName() + "\" is already registered, ignoring.");
             return false;
         }
@@ -156,7 +168,7 @@ public class McpServer {
     }
 
     /**
-     * Unregisters a tool by name (case-sensitive).
+     * Unregisters a tool by name (case-insensitive).
      * Returns true if a tool was actually removed, or false if no tool with the given name was found.
      *
      * @param toolName The name of the tool to remove. Must not be null or blank.
@@ -167,7 +179,7 @@ public class McpServer {
         if (toolName == null || toolName.isBlank()) {
             throw new IllegalArgumentException("Tool name cannot be null or blank");
         }
-        boolean removed = tools.removeIf(t -> t.getName().equals(toolName));
+        boolean removed = tools.removeIf(t -> t.getName().equalsIgnoreCase(toolName));
         if (removed) {
             log.info("McpServer: unregistered tool \"" + toolName + "\"");
         } else {
@@ -194,16 +206,16 @@ public class McpServer {
             throw new IllegalArgumentException("Resource name and URI cannot be null or blank");
         }
         // Check it against our pattern (this also ensures it's at least 1 character long):
-        if (!ALPHA_NUMERIC_PATTERN.matcher(resourceName).matches()) {
-            throw new IllegalArgumentException("Resource name must start with a letter and then only contain letters, "
-                                                       + "numbers, hyphens, or underscores. Invalid name: \""
+        if (!NAME_PATTERN.matcher(resourceName).matches()) {
+            throw new IllegalArgumentException("Resource name must only contain letters, digits, dots, "
+                                                       + "hyphens, or underscores. Invalid name: \""
                                                        + resourceName + "\"");
         }
         if (resource.getMimeType() == null || resource.getMimeType().isBlank()) {
             throw new IllegalArgumentException("Resource \"" + resourceName + "\" has no MIME type. " +
                                                        "A valid MIME type is required to register a resource.");
         }
-        if (resources.stream().anyMatch(r -> r.getName().equals(resource.getName()))) {
+        if (resources.stream().anyMatch(r -> r.getName().equalsIgnoreCase(resource.getName()))) {
             log.warning(
                     "McpServer: resource with name \"" + resource.getName() + "\" is already registered, ignoring.");
             return false;
@@ -218,7 +230,7 @@ public class McpServer {
     }
 
     /**
-     * Unregisters a resource by name (case-sensitive).
+     * Unregisters a resource by name (case-insensitive).
      *
      * @param resourceName The name of the resource to remove. Must not be null or blank.
      * @return true if a resource was removed, or false if no resource with the given name was found.
@@ -228,12 +240,66 @@ public class McpServer {
         if (resourceName == null || resourceName.isBlank()) {
             throw new IllegalArgumentException("Resource name cannot be null or blank");
         }
-        boolean removed = resources.removeIf(r -> r.getName().equals(resourceName));
+        boolean removed = resources.removeIf(r -> r.getName().equalsIgnoreCase(resourceName));
         if (removed) {
             log.info("McpServer: unregistered resource \"" + resourceName + "\"");
         }
         else {
             log.warning("McpServer: no resource with name \"" + resourceName + "\" found to unregister.");
+        }
+        return removed;
+    }
+
+    /**
+     * Registers a prompt that clients can list and retrieve via "prompts/list" and "prompts/get" methods.
+     * The prompt name must be non-null and unique (case-insensitively) among registered prompts,
+     * and must match our NAME_PATTERN.
+     *
+     * @param prompt The prompt to register. Must not be null, and must have a valid name.
+     * @return true if the prompt was successfully registered, or false if a prompt with the same name is already registered.
+     * @throws IllegalArgumentException if you provide a null prompt or one with an invalid name.
+     */
+    public boolean registerPrompt(McpPrompt prompt) {
+        if (prompt == null) {
+            throw new IllegalArgumentException("Prompt cannot be null");
+        }
+        String promptName = prompt.getName();
+        if (promptName == null) {
+            throw new IllegalArgumentException("Prompt name cannot be null");
+        }
+
+        // Check it against our pattern (this also ensures it's at least 1 character long):
+        if (!NAME_PATTERN.matcher(promptName).matches()) {
+            throw new IllegalArgumentException("Prompt name must only contain letters, digits, dots, "
+                                                       + "hyphens, or underscores. Invalid name: \""
+                                                       + promptName + "\"");
+        }
+
+        if (prompts.stream().anyMatch(p -> p.getName().equalsIgnoreCase(prompt.getName()))) {
+            log.warning("McpServer: prompt with name \"" + prompt.getName() + "\" is already registered, ignoring.");
+            return false;
+        }
+        prompts.add(prompt);
+        log.info("McpServer: registered prompt \"" + prompt.getName() + "\"");
+        return true;
+    }
+
+    /**
+     * Unregisters a prompt by name (case-insensitive).
+     *
+     * @param promptName The name of the prompt to remove. Must not be null or blank.
+     * @return true if a prompt was removed, or false if no prompt with the given name was found.
+     * @throws IllegalArgumentException if the prompt name is null or blank.
+     */
+    public boolean unregisterPrompt(String promptName) {
+        if (promptName == null || promptName.isBlank()) {
+            throw new IllegalArgumentException("Prompt name cannot be null or blank");
+        }
+        boolean removed = prompts.removeIf(p -> p.getName().equalsIgnoreCase(promptName));
+        if (removed) {
+            log.info("McpServer: unregistered prompt \"" + promptName + "\"");
+        } else {
+            log.warning("McpServer: no prompt with name \"" + promptName + "\" found to unregister.");
         }
         return removed;
     }
@@ -280,7 +346,8 @@ public class McpServer {
                 "protocolVersion", MCP_VERSION,
                 "capabilities", Map.of(
                         "tools", Map.of("listChanged", false),
-                        "resources", Map.of("listChanged", false, "subscribe", false)
+                        "resources", Map.of("listChanged", false, "subscribe", false),
+                        "prompts", Map.of("listChanged", false)
                 ),
                 "serverInfo", Map.of("name", "mcp-light", "version", VERSION)
         );
@@ -294,11 +361,15 @@ public class McpServer {
     private Map<String, Object> handleToolsList() {
         List<Map<String, Object>> toolDefs = new ArrayList<>();
         for (McpTool tool : tools) {
-            toolDefs.add(Map.of(
-                    "name", tool.getName(),
-                    "description", tool.getDescription(),
-                    "inputSchema", tool.getInputSchema()
-            ));
+            Map<String, Object> toolDef = new HashMap<>();
+            toolDef.put("name", tool.getName());
+            String description = tool.getDescription();
+            if (description != null && !description.isBlank()) {
+                toolDef.put("description", description); // description is optional
+            }
+            Map<String, Object> inputSchema = tool.getInputSchema();
+            toolDef.put("inputSchema", inputSchema != null ? inputSchema : Map.of());
+            toolDefs.add(toolDef);
         }
         return Map.of("tools", toolDefs);
     }
@@ -313,7 +384,7 @@ public class McpServer {
             return null;
         }
         McpTool tool = tools.stream()
-                .filter(t -> t.getName().equals(toolName))
+                            .filter(t -> t.getName().equalsIgnoreCase(toolName))
                 .findFirst()
                 .orElse(null);
         if (tool == null) {
@@ -330,9 +401,10 @@ public class McpServer {
             isError = true;
             result = "Tool execution failed: " + e.getMessage();
         }
-        return Map.of("content", List.of(
-                new McpToolContent("text", result, isError)
-        ));
+        return Map.of(
+                "content", List.of(new McpToolContent("text", result)),
+                "isError", isError
+        );
     }
 
     /**
@@ -408,6 +480,65 @@ public class McpServer {
         }
         catch (Exception e) {
             return Map.of("error", "Failed to fetch resource content: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Generates a list of our registered prompts in the format expected by clients.
+     */
+    private Map<String, Object> handlePromptsList() {
+        List<Map<String, Object>> promptDefs = new ArrayList<>();
+        for (McpPrompt prompt : prompts) {
+            Map<String, Object> def = new HashMap<>();
+            def.put("name", prompt.getName());
+            def.put("description", prompt.getDescription() == null ? "" : prompt.getDescription());
+            List<Map<String, Object>> argList = new ArrayList<>();
+            for (McpPromptArgument arg : prompt.getArguments()) {
+                Map<String, Object> argDef = new HashMap<>();
+                argDef.put("name", arg.getName());
+                argDef.put("description", arg.getDescription() == null ? "" : arg.getDescription());
+                argDef.put("required", arg.isRequired());
+                argList.add(argDef);
+            }
+            def.put("arguments", argList);
+            promptDefs.add(def);
+        }
+        return Map.of("prompts", promptDefs);
+    }
+
+    /**
+     * Returns the messages for a prompt by name, optionally filtered by arguments.
+     * If the return is null, the given prompt name was not found.
+     *
+     * @param promptName The name of the prompt to retrieve.
+     * @param arguments  The arguments to pass to the prompt, or null/empty if none were provided.
+     * @return The prompt response (or error response), or null if no such prompt was found.
+     */
+    private Map<String, Object> handlePromptGet(String promptName, Map<String, Object> arguments) {
+        if (promptName == null || promptName.isBlank()) {
+            log.warning("McpServer: received prompt get with blank prompt name.");
+            return null;
+        }
+
+        McpPrompt prompt = prompts.stream()
+                                  .filter(p -> p.getName().equalsIgnoreCase(promptName))
+                .findFirst()
+                .orElse(null);
+
+        if (prompt == null) {
+            return null;
+        }
+
+        try {
+            log.info("McpServer: retrieving prompt \"" + promptName + "\"");
+            List<McpPromptMessage> messages = prompt.getMessages(arguments != null ? arguments : Map.of());
+            return Map.of(
+                    "description", prompt.getDescription() == null ? "" : prompt.getDescription(),
+                    "messages", messages
+            );
+        }
+        catch (Exception e) {
+            return Map.of("error", "Failed to get prompt \"" + promptName + "\": " + e.getMessage());
         }
     }
 
@@ -623,6 +754,42 @@ public class McpServer {
                         }
                         else {
                             response.result = toolResult;
+                        }
+                    }
+                    else if ("prompts/list".equals(method)) {
+                        response.result = handlePromptsList();
+                    }
+                    else if ("prompts/get".equals(method)) {
+                        Map<String, Object> params = request.params != null ? request.params : Map.of();
+                        String promptName = params.get("name") instanceof String ? (String)params.get("name") : null;
+                        Object promptArgs = params.get("arguments");
+                        Map<String, Object> promptArguments = Map.of();
+                        if (promptArgs instanceof Map<?, ?> args) {
+                            // noinspection unchecked
+                            promptArguments = (Map<String, Object>)args;
+                        }
+                        else if (promptArgs != null) {
+                            log.warning("McpServer: expected prompt arguments to be a map, but got: " + promptArgs);
+                        }
+                        if (promptName == null || promptName.isBlank()) {
+                            log.severe("McpServer: received prompt get request with missing or blank name.");
+                            response.error = Map.of("code", McpError.INVALID_PARAMS.getCode(),
+                                                    "message", "Missing or blank 'name' parameter");
+                        }
+                        else {
+                            Map<String, Object> promptResult = handlePromptGet(promptName, promptArguments);
+                            if (promptResult == null) {
+                                log.severe("McpServer: no prompt found with name: " + promptName);
+                                response.error = Map.of("code", McpError.PROMPT_NOT_FOUND.getCode(),
+                                                        "message", "No such prompt: " + promptName);
+                            }
+                            else if (promptResult.get("error") != null) {
+                                response.error = Map.of("code", McpError.INTERNAL_ERROR.getCode(),
+                                                        "message", promptResult.get("error"));
+                            }
+                            else {
+                                response.result = promptResult;
+                            }
                         }
                     }
                     else {

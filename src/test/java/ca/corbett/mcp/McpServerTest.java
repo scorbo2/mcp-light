@@ -1,5 +1,7 @@
 package ca.corbett.mcp;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,6 +14,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -140,12 +143,48 @@ class McpServerTest {
     @Test
     public void registerTool_withInvalidName_shouldThrow() {
         McpTool tool = new McpTool() {
-            public String getName() { return "123bad"; }
+            public String getName() { return "bad name"; }
             public String getDescription() { return "desc"; }
             public Map<String, Object> getInputSchema() { return Map.of(); }
             public String execute(Map<String, Object> input) { return "ok"; }
         };
         assertThrows(IllegalArgumentException.class, () -> server.registerTool(tool));
+    }
+
+    @Test
+    public void registerTool_withDigitFirstName_shouldReturnTrue() {
+        McpTool tool = createTool("123tool", "A tool starting with digits", "ok");
+        assertTrue(server.registerTool(tool));
+    }
+
+    @Test
+    public void registerTool_withDotInName_shouldReturnTrue() {
+        McpTool tool = createTool("my.tool", "A tool with a dot", "ok");
+        assertTrue(server.registerTool(tool));
+    }
+
+    @Test
+    public void registerTool_withStrangeYetValidName_shouldReturnTrue() {
+        // These are all technically valid names according to the MCP spec, but very strange:
+        String[] bizarreNames = {
+                ".",
+                "..",
+                "-",
+                "_",
+                ".-_.-_.-_.-_"
+        };
+        for (String bizarreName : bizarreNames) {
+            McpTool tool = createTool(bizarreName, "A tool with a bizarre name", "ok");
+            assertTrue(server.registerTool(tool), "Failed to register tool with name: " + bizarreName);
+        }
+    }
+
+    @Test
+    public void registerTool_withCaseInsensitiveDuplicateName_shouldReturnFalse() {
+        McpTool tool1 = createTool("myTool", "A tool", "ok");
+        McpTool tool2 = createTool("MYTOOL", "Another tool with same name in different case", "ok2");
+        assertTrue(server.registerTool(tool1));
+        assertFalse(server.registerTool(tool2));
     }
 
     @Test
@@ -193,6 +232,13 @@ class McpServerTest {
     @Test
     public void unregisterTool_withBlankName_shouldThrow() {
         assertThrows(IllegalArgumentException.class, () -> server.unregisterTool(""));
+    }
+
+    @Test
+    public void unregisterTool_withDifferentCase_shouldUnregister() {
+        McpTool tool = createTool("myTool", "A tool", "ok");
+        server.registerTool(tool);
+        assertTrue(server.unregisterTool("MYTOOL")); // case-insensitive unregistration
     }
 
     // ==================== Resource Registration ====================
@@ -266,7 +312,7 @@ class McpServerTest {
     public void registerResource_withInvalidName_shouldThrow() {
         McpResource resource = new McpResource() {
             public String getName() {
-                return "123bad";
+                return "bad name";
             }
 
             public String getDescription() {
@@ -290,6 +336,14 @@ class McpServerTest {
             }
         };
         assertThrows(IllegalArgumentException.class, () -> server.registerResource(resource));
+    }
+
+    @Test
+    public void registerResource_withCaseInsensitiveDuplicateName_shouldReturnFalse() {
+        McpResource resource1 = createResource("myResource", "A resource", "myapp://resource1", "content1");
+        McpResource resource2 = createResource("MYRESOURCE", "Another resource", "myapp://resource2", "content2");
+        assertTrue(server.registerResource(resource1));
+        assertFalse(server.registerResource(resource2));
     }
 
     @Test
@@ -338,6 +392,13 @@ class McpServerTest {
         assertThrows(IllegalArgumentException.class, () -> server.unregisterResource(""));
     }
 
+    @Test
+    public void unregisterResource_withDifferentCase_shouldUnregister() {
+        McpResource resource = createResource("myResource", "A resource", "myapp://resource", "content");
+        server.registerResource(resource);
+        assertTrue(server.unregisterResource("MYRESOURCE")); // case-insensitive unregistration
+    }
+
     // ==================== HTTP Endpoint Tests ====================
 
     @Test
@@ -349,7 +410,7 @@ class McpServerTest {
                     "id": 1,
                     "method": "initialize",
                     "params": {
-                        "clientInfo": { "name": "test-client", "version": "1.0" }
+                        "clientInfo": { "name": "test-client", "version": "1.1" }
                     }
                 }
                 """;
@@ -442,8 +503,89 @@ class McpServerTest {
                 }
                 """;
         String response = sendJsonRequest(body, port);
-        assertTrue(response.contains("\"type\":\"text\""));
-        assertTrue(response.contains("\"isError\":false"));
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode jsonResponse = mapper.readTree(response);
+
+        // isError should be at the result level, NOT inside content items:
+        JsonNode resultNode = jsonResponse.get("result");
+        assertTrue(resultNode.has("isError"));
+        assertFalse(resultNode.get("isError").asBoolean());
+        assertTrue(resultNode.has("content"));
+
+        // The content item list should have a single item in it:
+        JsonNode contentNode = resultNode.get("content");
+        assertTrue(contentNode.isArray());
+        assertEquals(1, contentNode.size());
+
+        // The single item should have a type of "text":
+        JsonNode itemNode = contentNode.get(0);
+        assertTrue(itemNode.has("type"));
+        assertEquals("text", itemNode.get("type").asText());
+        assertTrue(itemNode.has("text"));
+
+        // Issue #20 - the content item should NOT have an "isError" field:
+        assertFalse(itemNode.has("isError"));
+    }
+
+    @Test
+    public void handleToolCall_withDifferentCase_shouldInvokeTool() throws Exception {
+        int port = server.getPort();
+        server.registerTool(createTool("myTool", "Does something", "{\"type\":\"object\"}"));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 5,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "MYTOOL",
+                        "arguments": { "message": "hello" }
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode jsonResponse = mapper.readTree(response);
+
+        // Should have executed without error:
+        JsonNode resultNode = jsonResponse.get("result");
+        assertTrue(resultNode.has("isError"));
+        assertFalse(resultNode.get("isError").asBoolean());
+        assertTrue(resultNode.has("content"));
+    }
+
+    @Test
+    public void handleToolsList_withToolWithNullDescription_shouldReturnToolWithEmptyDescription() throws Exception {
+        int port = server.getPort();
+        server.registerTool(createTool("nullDescTool", null, "{\"type\":\"object\"}"));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 6,
+                    "method": "tools/list"
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("nullDescTool"));
+        assertFalse(response.contains("\"description\":")); // should not be present at all
+    }
+
+    @Test
+    public void handleToolsList_withToolWithNullInputSchema_shouldReturnToolWithEmptyInputSchema() throws Exception {
+        int port = server.getPort();
+        server.registerTool(createTool("nullInputTool", "A tool with null input schema", null));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 7,
+                    "method": "tools/list"
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("nullInputTool"));
+        assertTrue(response.contains("\"inputSchema\":{}")); // should be present but empty
     }
 
     @Test
@@ -483,8 +625,31 @@ class McpServerTest {
                 }
                 """;
         String response = sendJsonRequest(body, port);
-        assertTrue(response.contains("Tool execution failed"));
-        assertTrue(response.contains("boom!"));
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode jsonResponse = mapper.readTree(response);
+
+        // isError should be at the result level, NOT inside content items:
+        JsonNode resultNode = jsonResponse.get("result");
+        assertTrue(resultNode.has("isError"));
+        assertTrue(resultNode.get("isError").asBoolean());
+        assertTrue(resultNode.has("content"));
+
+        // The content item list should have a single item in it:
+        JsonNode contentNode = resultNode.get("content");
+        assertTrue(contentNode.isArray());
+        assertEquals(1, contentNode.size());
+
+        // The single item should have a type of "text":
+        JsonNode itemNode = contentNode.get(0);
+        assertTrue(itemNode.has("type"));
+        assertEquals("text", itemNode.get("type").asText());
+        assertTrue(itemNode.has("text"));
+
+        // The item's text should contain our expected message:
+        assertEquals("Tool execution failed: boom!", itemNode.get("text").asText());
+
+        // Issue #20 - the content item should NOT have an "isError" field:
+        assertFalse(itemNode.has("isError"));
     }
 
     @Test
@@ -1017,6 +1182,324 @@ class McpServerTest {
         assertTrue(response.contains("fetch error!"));
     }
 
+    // ==================== Prompt Registration ====================
+
+    @Test
+    public void registerPrompt_withNull_shouldThrow() {
+        assertThrows(IllegalArgumentException.class, () -> server.registerPrompt(null));
+    }
+
+    @Test
+    public void registerPrompt_withNullName_shouldThrow() {
+        McpPrompt prompt = new McpPrompt() {
+            public String getName() { return null; }
+            public String getDescription() { return "A prompt"; }
+            public List<McpPromptArgument> getArguments() { return List.of(); }
+            public List<McpPromptMessage> getMessages(Map<String, Object> arguments) { return List.of(); }
+        };
+        assertThrows(IllegalArgumentException.class, () -> server.registerPrompt(prompt));
+    }
+
+    @Test
+    public void registerPrompt_withInvalidName_shouldThrow() {
+        McpPrompt prompt = new McpPrompt() {
+            public String getName() { return "bad name"; }
+            public String getDescription() { return "A prompt"; }
+            public List<McpPromptArgument> getArguments() { return List.of(); }
+            public List<McpPromptMessage> getMessages(Map<String, Object> arguments) { return List.of(); }
+        };
+        assertThrows(IllegalArgumentException.class, () -> server.registerPrompt(prompt));
+    }
+
+    @Test
+    public void registerPrompt_withCaseInsensitiveDuplicateName_shouldReturnFalse() {
+        McpPrompt prompt1 = createPrompt("myPrompt", "A prompt", List.of(), List.of());
+        McpPrompt prompt2 = createPrompt("MYPROMPT", "Another prompt with same name in different case", List.of(), List.of());
+        assertTrue(server.registerPrompt(prompt1));
+        assertFalse(server.registerPrompt(prompt2));
+    }
+
+    @Test
+    public void registerPrompt_withValidName_shouldReturnTrue() {
+        McpPrompt prompt = createPrompt("myPrompt", "A prompt", List.of(), List.of());
+        assertTrue(server.registerPrompt(prompt));
+    }
+
+    @Test
+    public void registerPrompt_withDuplicateName_shouldReturnFalse() {
+        McpPrompt prompt1 = createPrompt("myPrompt", "A prompt", List.of(), List.of());
+        McpPrompt prompt2 = createPrompt("myPrompt", "Another prompt", List.of(), List.of());
+        assertTrue(server.registerPrompt(prompt1));
+        assertFalse(server.registerPrompt(prompt2));
+    }
+
+    @Test
+    public void unregisterPrompt_withNonExistent_shouldReturnFalse() {
+        assertFalse(server.unregisterPrompt("nonexistent"));
+    }
+
+    @Test
+    public void unregisterPrompt_withExisting_shouldReturnTrue() {
+        McpPrompt prompt = createPrompt("myPrompt", "A prompt", List.of(), List.of());
+        server.registerPrompt(prompt);
+        assertTrue(server.unregisterPrompt("myPrompt"));
+    }
+
+    @Test
+    public void unregisterPrompt_withNullName_shouldThrow() {
+        assertThrows(IllegalArgumentException.class, () -> server.unregisterPrompt(null));
+    }
+
+    @Test
+    public void unregisterPrompt_withBlankName_shouldThrow() {
+        assertThrows(IllegalArgumentException.class, () -> server.unregisterPrompt(""));
+    }
+
+    @Test
+    public void unregisterPrompt_withDifferentCase_shouldUnregister() {
+        McpPrompt prompt = createPrompt("myPrompt", "A prompt", List.of(), List.of());
+        server.registerPrompt(prompt);
+        assertTrue(server.unregisterPrompt("MYPROMPT")); // case-insensitive unregistration
+    }
+
+    // ==================== Prompt HTTP Endpoint Tests ====================
+
+    @Test
+    public void handlePromptsList_withNoPrompts_shouldReturnEmptyList() throws Exception {
+        int port = server.getPort();
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 30,
+                    "method": "prompts/list"
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("\"prompts\":[]"));
+    }
+
+    @Test
+    public void handlePromptsList_withPrompts_shouldReturnRegisteredPrompts() throws Exception {
+        int port = server.getPort();
+        List<McpPromptArgument> args = List.of(new McpPromptArgument("topic", "Discussion topic", true));
+        List<McpPromptMessage> messages = List.of(new McpPromptMessage("user", "Hello"));
+        server.registerPrompt(createPrompt("greet", "Greets the user", args, messages));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 31,
+                    "method": "prompts/list"
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("greet"));
+        assertTrue(response.contains("Greets the user"));
+        assertTrue(response.contains("topic"));
+        assertTrue(response.contains("Discussion topic"));
+        assertTrue(response.contains("required"));
+    }
+
+    @Test
+    public void handlePromptGet_withValidPrompt_shouldReturnMessages() throws Exception {
+        int port = server.getPort();
+        List<McpPromptMessage> messages = List.of(new McpPromptMessage("user", "Hello world"));
+        server.registerPrompt(createPrompt("simple", "A simple prompt", List.of(), messages));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 32,
+                    "method": "prompts/get",
+                    "params": {
+                        "name": "simple"
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("Hello world"));
+        assertTrue(response.contains("description"));
+        assertTrue(response.contains("\"role\":\"user\""));
+    }
+
+    @Test
+    public void handlePromptGet_withArguments_shouldPassArgumentsToPrompt() throws Exception {
+        int port = server.getPort();
+        McpPrompt prompt = new McpPrompt() {
+            public String getName() { return "dynamicPrompt"; }
+            public String getDescription() { return "A dynamic prompt"; }
+            public List<McpPromptArgument> getArguments() { return List.of(new McpPromptArgument("name", "Name", true)); }
+            public List<McpPromptMessage> getMessages(Map<String, Object> arguments) {
+                String name = arguments.getOrDefault("name", "World").toString();
+                return List.of(new McpPromptMessage("user", "Hello, " + name + "!"));
+            }
+        };
+        server.registerPrompt(prompt);
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 33,
+                    "method": "prompts/get",
+                    "params": {
+                        "name": "dynamicPrompt",
+                        "arguments": { "name": "Alice" }
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("Hello, Alice!"));
+    }
+
+    @Test
+    public void handlePromptGet_withUnknownPrompt_shouldReturnNotFound() throws Exception {
+        int port = server.getPort();
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 34,
+                    "method": "prompts/get",
+                    "params": {
+                        "name": "nonexistent"
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("error"));
+        assertTrue(response.contains("No such prompt: nonexistent"));
+    }
+
+    @Test
+    public void handlePromptGet_withDifferentCase_shouldReturnPrompt() throws Exception {
+        int port = server.getPort();
+        List<McpPromptMessage> messages = List.of(new McpPromptMessage("user", "Hello world"));
+        server.registerPrompt(createPrompt("simple", "A simple prompt", List.of(), messages));
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 32,
+                    "method": "prompts/get",
+                    "params": {
+                        "name": "SiMplE"
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("Hello world"));
+        assertTrue(response.contains("description"));
+        assertTrue(response.contains("\"role\":\"user\""));
+
+    }
+
+    @Test
+    public void handlePromptGet_withBlankName_shouldComplain() throws Exception {
+        int port = server.getPort();
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 35,
+                    "method": "prompts/get",
+                    "params": {
+                        "name": ""
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("error"));
+        assertTrue(response.contains("Missing or blank"));
+    }
+
+    @Test
+    public void handlePromptGet_withMissingName_shouldComplain() throws Exception {
+        int port = server.getPort();
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 36,
+                    "method": "prompts/get"
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("error"));
+        assertTrue(response.contains("Missing or blank"));
+    }
+
+    @Test
+    public void handlePromptGet_withPromptThatThrows_shouldReturnError() throws Exception {
+        int port = server.getPort();
+        McpPrompt prompt = new McpPrompt() {
+            public String getName() { return "boomPrompt"; }
+            public String getDescription() { return "Always fails"; }
+            public List<McpPromptArgument> getArguments() { return List.of(); }
+            public List<McpPromptMessage> getMessages(Map<String, Object> arguments) {
+                throw new RuntimeException("prompt boom!");
+            }
+        };
+        server.registerPrompt(prompt);
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 37,
+                    "method": "prompts/get",
+                    "params": {
+                        "name": "boomPrompt"
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("error"));
+        assertTrue(response.contains("Failed to get prompt"));
+        assertTrue(response.contains("prompt boom!"));
+    }
+
+    @Test
+    public void handlePromptGet_withNoArguments_shouldUseEmptyMap() throws Exception {
+        int port = server.getPort();
+        McpPrompt prompt = new McpPrompt() {
+            public String getName() { return "noArgPrompt"; }
+            public String getDescription() { return "Takes no args"; }
+            public List<McpPromptArgument> getArguments() { return List.of(); }
+            public List<McpPromptMessage> getMessages(Map<String, Object> arguments) {
+                return List.of(new McpPromptMessage("user", "No arguments provided"));
+            }
+        };
+        server.registerPrompt(prompt);
+
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 38,
+                    "method": "prompts/get",
+                    "params": {
+                        "name": "noArgPrompt"
+                    }
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("No arguments provided"));
+    }
+
+    @Test
+    public void handleInitialize_shouldIncludePromptsCapability() throws Exception {
+        int port = server.getPort();
+        String body = """
+                {
+                    "jsonrpc": "2.0",
+                    "id": 39,
+                    "method": "initialize",
+                    "params": {}
+                }
+                """;
+        String response = sendJsonRequest(body, port);
+        assertTrue(response.contains("prompts"));
+        assertTrue(response.contains("listChanged"));
+    }
+
     // ==================== Helper Methods ====================
 
     private McpTool createTool(String name, String description, String result) {
@@ -1099,6 +1582,15 @@ class McpServerTest {
             public String getContent(String requestedUri) throws Exception {
                 throw new Exception(exceptionMessage);
             }
+        };
+    }
+
+    private McpPrompt createPrompt(String name, String description, List<McpPromptArgument> arguments, List<McpPromptMessage> messages) {
+        return new McpPrompt() {
+            public String getName() { return name; }
+            public String getDescription() { return description; }
+            public List<McpPromptArgument> getArguments() { return arguments; }
+            public List<McpPromptMessage> getMessages(Map<String, Object> arguments) { return messages; }
         };
     }
 
