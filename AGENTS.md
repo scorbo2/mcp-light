@@ -2,13 +2,13 @@
 
 ## Quick commands
 
-| Task | Command |
-|------|---------|
-| Build | `mvn clean package` |
-| Run (default port 8080) | `java -jar target/mcp-light-1.0.jar` |
-| Run (custom port) | `java -jar target/mcp-light-1.0.jar 9090` |
-| Tests | `mvn test` |
-| Compile only | `mvn compile` |
+| Task | Command                                    |
+|------|--------------------------------------------|
+| Build | `mvn clean package`                        |
+| Run (default port 8080) | `java -jar target/mcp-light-1.1.jar`       |
+| Run (custom port) | `java -jar target/mcp-light-1.1.jar 9090` |
+| Tests | `mvn test`                                 |
+| Compile only | `mvn compile`                              |
 
 ## Architecture
 

@@ -6,7 +6,7 @@
 
     <groupId>ca.corbett</groupId>
     <artifactId>mcp-light</artifactId>
-    <version>1.1-SNAPSHOT</version>
+    <version>1.1</version>
     <packaging>jar</packaging>
 
     <name>mcp-light</name>

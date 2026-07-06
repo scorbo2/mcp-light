@@ -2,14 +2,14 @@
 
 ## Commands
 
-| Task | Command |
-|------|---------|
-| Build | `mvn clean package` |
-| Test (full suite) | `mvn test` |
+| Task | Command                                                                 |
+|------|-------------------------------------------------------------------------|
+| Build | `mvn clean package`                                                     |
+| Test (full suite) | `mvn test`                                                              |
 | Test (single test) | `mvn test -Dtest=McpServerTest#isUp_withServerRunning_shouldReportTrue` |
-| Compile only | `mvn compile` |
-| Run (default port 8080) | `java -jar target/mcp-light-1.0.jar` |
-| Run (custom port) | `java -jar target/mcp-light-1.0.jar 9090` |
+| Compile only | `mvn compile`                                                           |
+| Run (default port 8080) | `java -jar target/mcp-light-1.1.jar`                                    |
+| Run (custom port) | `java -jar target/mcp-light-1.1.jar 9090`                              |
 
 No separate lint or format step — `mvn compile` is the check. Code style follows IntelliJ defaults (`.editorconfig`).
 

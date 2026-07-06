@@ -11,7 +11,8 @@ import java.util.Map;
 public interface McpTool {
 
     /**
-     * Return a non-blank name for your tool. Should be short and alphanumeric, with no spaces.
+     * Return a non-blank name for your tool. Should be short and contain only letters, digits,
+     * hyphens, dots, or underscores, with no spaces.
      */
     String getName();
 

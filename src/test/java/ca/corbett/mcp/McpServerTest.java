@@ -410,7 +410,7 @@ class McpServerTest {
                     "id": 1,
                     "method": "initialize",
                     "params": {
-                        "clientInfo": { "name": "test-client", "version": "1.0" }
+                        "clientInfo": { "name": "test-client", "version": "1.1" }
                     }
                 }
                 """;
