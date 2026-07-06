@@ -32,6 +32,7 @@ This will start a very simple MCP server with the following features:
 - a tool called `exampleTool` that takes two dummy arguments and returns a fixed string.
 - a static resource at `example://example/resource` that returns a fixed string.
 - a templated resource at `example://example/template/{id}` that returns a string containing the id you provided.
+- an example prompt that accepts a topic argument
 - support for OPTIONS requests, allowing you to connect from browser-based clients such as `llama-ui`.
 - support for MCP "ping" requests.
 
@@ -91,6 +92,7 @@ Once the library is imported into your Java project, you can implement the follo
 
 - [McpTool](src/main/java/ca/corbett/mcp/McpTool.java) to define tools that can be called by clients.
 - [McpResource](src/main/java/ca/corbett/mcp/McpResource.java) to expose resources that clients can read.
+- [McpPrompt](src/main/java/ca/corbett/mcp/McpPrompt.java) to define prompts that clients can call.
 
 Then, you can create an instance of [McpServer](src/main/java/ca/corbett/mcp/McpServer.java) and register your
 tools and resources to it before starting the server:
@@ -99,6 +101,7 @@ tools and resources to it before starting the server:
 McpServer server = new McpServer();
 server.registerTool(new MyTool());
 server.registerResource(new MyResource());
+server.registerPrompt(new MyPrompt());
 server.start();
 ```
 
